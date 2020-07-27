@@ -2,10 +2,13 @@
 // ColAndreas Plugin Include ///////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-#if defined COLANDREAS
+#if defined _colandreas_included
 	#endinput
 #endif
-#define COLANDREAS_VERSION (10400) //a.b.c 10000*a+100*b+c
+#define _colandreas_included
+#pragma library colandreas
+
+#define COLANDREAS_VERSION (10500) //a.b.c 10000*a+100*b+c
 #define COLANDREAS (COLANDREAS_VERSION)
 
 // Default extra ID types
@@ -37,8 +40,8 @@
 #define		OBJECT_TYPE_DYNAMIC	1
 
 
-#if !defined INFINITY
-	#define INFINITY (Float:0x7F800000)
+#if !defined FLOAT_INFINITY
+	#define FLOAT_INFINITY (Float:0x7F800000)
 #endif
 
 // Maximum number of raycasts in CA_RayCastMultiLine
@@ -71,6 +74,23 @@ native CA_Init();
 </remarks>
 \**--------------------------------------------------------------------------**/
 native CA_RemoveBuilding(modelid, Float:x, Float:y, Float:z, Float:radius);
+
+/**--------------------------------------------------------------------------**\
+<summary>
+	CA_RestoreBuilding
+</summary>
+<param name="modelid">The removed model to be restored</param>
+<param name="Float:x, Float:y, Float:z">The coordinates in which the objects will be restored</param>
+<param name="Float:radius">The radius around the specified point to restore from</param>
+<returns>
+	0 when the map is not initialized
+	1 when successfully restored
+</returns>
+<remarks>
+    You must use this function after using `CA_Init`
+</remarks>
+\**--------------------------------------------------------------------------**/
+native CA_RestoreBuilding(modelid, Float:x, Float:y, Float:z, Float:radius);
 
 /**--------------------------------------------------------------------------**\
 <summary>
@@ -319,6 +339,23 @@ native CA_RayCastLineEx(Float:StartX, Float:StartY, Float:StartZ, Float:EndX, Fl
 native CA_RayCastLineAngleEx(Float:StartX, Float:StartY, Float:StartZ, Float:EndX, Float:EndY, Float:EndZ, &Float:x, &Float:y, &Float:z, &Float:rx, &Float:ry, &Float:rz, &Float:ocx, &Float:ocy, &Float:ocz, &Float:orx, &Float:ory, &Float:orz);
 
 // Internal Functions:
+
+/**--------------------------------------------------------------------------**\
+<summary>
+	CA_LoadFromDff
+</summary>
+<param name="newid">Custom model id to be added to col. pool</param>
+<param name="dffFileName">Dff file path you want to load its collision</param>
+<returns>
+	-1 if plugin couldn't find/open file (relatd to permissions or wrong path)
+	0 if dff file had no collision or corrupted data
+	1 if loading dff file and reading collision data was successful
+</returns>
+<remarks>
+	Loads collision from given dff file to support SA-MP 0.3DL custom models.
+</remarks>
+\**--------------------------------------------------------------------------**/
+native CA_LoadFromDff(newid, const dffFileName[]);
 
 /**--------------------------------------------------------------------------**\
 <summary>
@@ -846,7 +883,7 @@ stock CA_IsPlayerInWater(playerid, &Float:depth, &Float:playerdepth)
 		{
 			if(modelids[i] == WATER_OBJECT)
 			{
-				depth = INFINITY;
+				depth = FLOAT_INFINITY;
 
 				for(new j = 0; j < collisions; j++)
 				{

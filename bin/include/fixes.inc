@@ -2102,10 +2102,10 @@ in the output code.
 #endif
 
 #if !defined FIX_SilentTeleport
-    #define FIX_SilentTeleport                          (1)
+	#define FIX_SilentTeleport                   (1)
 #elseif _FIXES_IS_UNSET(FIX_SilentTeleport)
-    #undef FIX_SilentTeleport
-    #define FIX_SilentTeleport                          (2)
+	#undef FIX_SilentTeleport
+	#define FIX_SilentTeleport                   (2)
 #endif
 
 #if !defined FIX_SetPlayerCheckpoint
@@ -3426,7 +3426,7 @@ static stock
 	/**
 	 * <remarks>
 	 * Stores the locked vehicle's id that the player
-	 * is currently trying to enter
+	 * is currently trying to enter.
 	 * </remarks>
 	 */
 #if FIX_OnPlayerEnterVehicle_3
@@ -3434,13 +3434,13 @@ static stock
 	/**
 	 * <remarks>
 	 * Stores the server tick when the player started
-	 * trying to enter the locked vehicle
+	 * trying to enter the locked vehicle.
 	 * </remarks>
 	 */
 	FIXES_gsPlayerVehicleTickCount[MAX_PLAYERS],
 	/**
 	 * <remarks>
-	 * Boolean: Stores if a certain vehicle is 'locked' or not
+	 * Boolean: Stores if a certain vehicle is 'locked' or not.
 	 * </remarks>
 	 */
 	bool:FIXES_gsVehicleIsLocked[MAX_VEHICLES],
@@ -4421,6 +4421,7 @@ static stock const
  * </remarks>
  */
 
+native BAD_IsValidVehicle(vehicleid) = IsValidVehicle;
 #if FIX_IsValidVehicle
 	native IsValidVehicle(vehicleid);
 #endif
@@ -4433,6 +4434,7 @@ static stock const
  * </remarks>
  */
 
+native Float:BAD_GetGravity() = GetGravity;
 #if FIX_GetGravity
 	native Float:GetGravity();
 #endif
@@ -4445,6 +4447,7 @@ static stock const
  * </remarks>
  */
 
+native BAD_gpci(playerid, serial[], maxlen) = gpci;
 #if FIX_gpci
 	native gpci(playerid, serial[], maxlen);
 #endif
@@ -4458,7 +4461,6 @@ static stock const
  */
 
 #if FIX_const
-
 	// a_actor
 	#if defined _ALS_ApplyActorAnimation
 		#error _ALS_ApplyActorAnimation defined
@@ -5212,7 +5214,7 @@ static _FIXES_DetermineOS()
  * <fixes>SilentTeleport</fixes>
  */
 #if defined _ALS_SetVehiclePos
-     #error _ALS_SetVehiclePos defined 
+	#error _ALS_SetVehiclePos defined 
 #endif 
 native BAD_SetVehiclePos(vehicleid, Float:x, Float:y, Float:z) = SetVehiclePos; 
 
@@ -5222,31 +5224,29 @@ native BAD_SetVehiclePos(vehicleid, Float:x, Float:y, Float:z) = SetVehiclePos;
 
 #if FIX_SilentTeleport
 	stock FIXES_SetVehiclePos(vehicleid, Float:x, Float:y, Float:z)
-	{	 
-
+	{
 		// Validity check to prevent array out of bounds.
-		if (!SetVehiclePos(vehicleid, x, y, z))
+		if (SetVehiclePos(vehicleid, x, y, z))
 		{
-			return 0;
-		}
-		
-		_FIXES_FOREACH(FIXES_gsPlayersIterator, i)
-		{
-			if (GetPlayerState(i) == PLAYER_STATE_DRIVER && GetPlayerVehicleID(i) == vehicleid)
+			_FIXES_FOREACH(FIXES_gsPlayersIterator, i)
 			{
-				if (FIXES_gsJackedId[i] != INVALID_PLAYER_ID)
+				if (GetPlayerState(i) == PLAYER_STATE_DRIVER && GetPlayerVehicleID(i) == vehicleid)
 				{
-					ClearAnimations(FIXES_gsJackedId[i]);
-					break;
+					if (FIXES_gsJackedId[i] != INVALID_PLAYER_ID)
+					{
+						ClearAnimations(FIXES_gsJackedId[i]);
+						break;
+					}
 				}
 			}
+			return 1;
 		}
-		return 1;
+		return 0;
 	}
 
 	#define _ALS_SetVehiclePos
-	#define SetVehiclePos( FIXES_SetVehiclePos( 
-#endif 
+	#define SetVehiclePos( FIXES_SetVehiclePos(
+#endif
 
 /**
  * <remarks>
@@ -6965,7 +6965,7 @@ native BAD_SetPlayerName(playerid, const name[]) = SetPlayerName;
 		//  END:   TogglePlayerControllable
 		// =================================
 
-	  	// =========================
+		// =========================
 		// BEGIN: SilentTeleport
 		// =========================
 		#if FIX_SilentTeleport
@@ -7245,7 +7245,7 @@ native BAD_GetWeaponName(weaponid, weapon[], len) = GetWeaponName;
 		#if FIX_OnPlayerEnterVehicle_3
 			if (FIXES_gsPlayerBools[playerid] & e_FIXES_BOOLS_VEH_ENTER)
 			{
-				if (GetTickCount() >= FIXES_gsPlayerVehicleTickCount[playerid] + 4000)
+				if (GetTickCount() - FIXES_gsPlayerVehicleTickCount[playerid] >= 4000)
 				{
 					_FIXES_StopPlayerEnterVehicle(playerid);
 				}
@@ -7374,7 +7374,7 @@ native BAD_GetWeaponName(weaponid, weapon[], len) = GetWeaponName;
 		//  BEGIN: PassengerSeating
 		// =================================
 		#if FIX_PassengerSeating
-			if (FIXES_gsPSTimer[playerid] != 0 && GetTickCount() > FIXES_gsPSTimer[playerid])
+			if (FIXES_gsPSTimer[playerid] != 0 && GetTickCount() - FIXES_gsPSTimer[playerid] > 0)
 			{
 				if (GetPlayerSpecialAction(playerid) == SPECIAL_ACTION_ENTER_VEHICLE)
 				{
@@ -8229,7 +8229,7 @@ native BAD_DestroyMenu(Menu:menuid) = DestroyMenu;
 							if (HideMenuForPlayer(menuid, playerid))
 							{
 								#if FIXES_Single
-									FIXES_gsSettings &= ~e_FIXES_SETTINGS_MENU_SET;
+									FIXES_gsSettings &= ~e_FIXES_SETTINGS_MENU_SET,
 									FIXES_gsCurrentMenu[playerid] = Menu:INVALID_MENU;
 								#else
 									CallRemoteFunction(FIXES_gscSetPlayerMenu, FIXES_gscSpec@ii, playerid, INVALID_MENU);
@@ -8327,7 +8327,7 @@ native BAD_ShowMenuForPlayer(Menu:menuid, playerid) = ShowMenuForPlayer;
 					if (ShowMenuForPlayer(menuid, playerid))
 					{
 						#if FIXES_Single
-							FIXES_gsSettings |= e_FIXES_SETTINGS_MENU_SET;
+							FIXES_gsSettings |= e_FIXES_SETTINGS_MENU_SET,
 							FIXES_gsCurrentMenu[playerid] = menuid;
 						#else
 							CallRemoteFunction(FIXES_gscSetPlayerMenu, FIXES_gscSpec@ii, playerid, _:menuid);
@@ -8377,7 +8377,7 @@ native BAD_HideMenuForPlayer(Menu:menuid, playerid) = HideMenuForPlayer;
 					#endif
 						{
 							#if FIXES_Single
-								FIXES_gsSettings &= ~e_FIXES_SETTINGS_MENU_SET;
+								FIXES_gsSettings &= ~e_FIXES_SETTINGS_MENU_SET,
 								FIXES_gsCurrentMenu[playerid] = Menu:INVALID_MENU;
 							#else
 								CallRemoteFunction(FIXES_gscSetPlayerMenu, FIXES_gscSpec@ii, playerid, INVALID_MENU);
@@ -8507,17 +8507,16 @@ native BAD_GetPlayerMenu(playerid) = GetPlayerMenu;
 						model = GetVehicleModel(GetPlayerVehicleID(playerid)) - 400;
 					if (_FIXES_IN_RANGE(model, 0, 211 + 1))
 					{
-						new
-							seat = GetPlayerVehicleSeat(playerid);
-						if (seat != 128)
+						model = (FIXES_gscMaxPassengers[model >>> 3] >>> ((model & 7) << 2)) & 0xF;
+						if (model == 0 || model == 15)
 						{
-							model = (FIXES_gscMaxPassengers[model >>> 3] >>> ((model & 7) << 2)) & 0xF;
-							if (model == 0 || model == 15)
-							{
-								// Shouldn't be in this vehicle at all.
-								FIXES_BlockUpdate(playerid);
-							}
-							else if (!(0 < seat <= model)) // Slower with "_FIXES_NO_RANGE".
+							// Shouldn't be in this vehicle at all.
+							FIXES_BlockUpdate(playerid);
+						}
+						else
+						{
+							// Slower with "_FIXES_NO_RANGE".
+							if (!(0 < GetPlayerVehicleSeat(playerid) <= model))
 							{
 								// In an out of range seat.
 								FIXES_BlockUpdate(playerid);
@@ -8531,31 +8530,21 @@ native BAD_GetPlayerMenu(playerid) = GetPlayerMenu;
 				}
 				else if (newstate == PLAYER_STATE_DRIVER)
 				{
-						new
-							model = GetPlayerVehicleSeat(playerid);
-						if (model != 128)
+					new
+						model = GetVehicleModel(GetPlayerVehicleID(playerid)) - 400;
+					if (GetPlayerVehicleSeat(playerid) == 0)
+					{
+						if (_FIXES_NO_RANGE(model, 0, 211 + 1) || FIXES_gscMaxPassengers[model >>> 3] >>> ((model & 7) << 2) & 0xF == 15)
 						{
-							if (model == 0)
-							{
-								model = GetVehicleModel(GetPlayerVehicleID(playerid)) - 400;
-								if (_FIXES_NO_RANGE(model, 0, 211 + 1) || FIXES_gscMaxPassengers[model >>> 3] >>> ((model & 7) << 2) & 0xF == 15)
-								{
-									// In an invalid vehicle (one you can't drive).
-									FIXES_BlockUpdate(playerid);
-								}
-							}
-							else
-							{
-								// They are a driver, but not in the driver's seat.
-								FIXES_BlockUpdate(playerid);
-							}
+							// In an invalid vehicle (one you can't drive).
+							FIXES_BlockUpdate(playerid);
 						}
-					#if FIX_HydraSniper
-						else
-						{
-							model = GetVehicleModel(GetPlayerVehicleID(playerid));
-						}
-					#endif
+					}
+					else
+					{
+						// They are a driver, but not in the driver's seat.
+						FIXES_BlockUpdate(playerid);
+					}
 			#if !FIX_HydraSniper && !FIX_GetPlayerWeapon
 				}
 			#endif
@@ -8573,9 +8562,9 @@ native BAD_GetPlayerMenu(playerid) = GetPlayerMenu;
 				if (newstate == PLAYER_STATE_DRIVER)
 				{
 					new
-						model = GetVehicleModel(GetPlayerVehicleID(playerid));
+						model = GetVehicleModel(GetPlayerVehicleID(playerid)) - 400;
 			#endif
-					if (GetPlayerWeapon(playerid) == 34 && (model == 520 || model == 425))
+					if (GetPlayerWeapon(playerid) == 34 && (model == 120 || model == 25))
 					{
 						SetPlayerArmedWeapon(playerid, 0);
 						#if FIX_GetPlayerWeapon
@@ -8599,15 +8588,25 @@ native BAD_GetPlayerMenu(playerid) = GetPlayerMenu;
 				// Only called if the same check above isn't called.
 				if (newstate == PLAYER_STATE_DRIVER)
 				{
-			#endif
 					new
-						weapon,
+						model,
 						ammo;
-					GetPlayerWeaponData(playerid, 4, weapon, ammo);
-					if (weapon)
+			#else
+					new
+						ammo;
+			#endif
+					// It's a shame `weaponid` is set before `ammo` since we don't actually read
+					// ammo.  Were they done the other way around we could do:
+					//
+					//   GetPlayerWeaponData(playerid, 4, model, model);
+					//
+					// And have the weapon data clobber the ammo data, thus avoiding a variable
+					// allocation (wow, a whole ONE instruction...).
+					GetPlayerWeaponData(playerid, 4, model, ammo);
+					if (model)
 					{
-						SetPlayerArmedWeapon(playerid, weapon);
-						FIXES_SET(PlayerWeapon, playerid, weapon);
+						SetPlayerArmedWeapon(playerid, model);
+						FIXES_SET(PlayerWeapon, playerid, model);
 					}
 				}
 		#endif
@@ -11075,6 +11074,7 @@ native BAD_GetVehicleParamsEx(vehicleid, &engine, &lights, &alarm, &doors, &bonn
 /**
  * <fixes>OnPlayerEnterVehicle_3</fixes>
  */
+
 #if FIX_OnPlayerEnterVehicle_3 && !FIXES_Single && !defined FILTERSCRIPT
 	forward _FIXES_GetVehicleDoorsEx(vehicleid);
 
@@ -11730,6 +11730,7 @@ native BAD_SetPlayerPosFindZ(playerid, Float:x, Float:y, Float:z) = SetPlayerPos
 			}
 	}
 #endif
+
 /**
  * <fixes>GetPlayerAmmo</fixes>
  */
@@ -11738,6 +11739,7 @@ native BAD_SetPlayerPosFindZ(playerid, Float:x, Float:y, Float:z) = SetPlayerPos
 	#error _ALS_SetPlayerAmmo defined
 #endif
 native BAD_SetPlayerAmmo(playerid, weaponid, ammo) = SetPlayerAmmo;
+
 /**
  * <fixes>GetPlayerAmmo</fixes>
  */
@@ -11745,15 +11747,7 @@ native BAD_SetPlayerAmmo(playerid, weaponid, ammo) = SetPlayerAmmo;
 #if FIX_GetPlayerAmmo
 	stock FIXES_SetPlayerAmmo(playerid, weaponid, ammo)
 	{
-		if (ammo > 32767)
-		{
-			ammo = 32767;
-		}
-		else if (ammo < 0)
-		{
-			ammo = 0;
-		}
-		return SetPlayerAmmo(playerid, weaponid, ammo);
+		return SetPlayerAmmo(playerid, weaponid, clamp(ammo, 0, 32767));
 	}
 
 	#define _ALS_SetPlayerAmmo
@@ -11766,7 +11760,6 @@ native BAD_SetPlayerAmmo(playerid, weaponid, ammo) = SetPlayerAmmo;
  * Convert a string to a number (hash it).
  *
  * FIXES:
- *    ChangeVehicleColor
  *    GetServerVarAsString
  *    GetServerVarAsBool
  *    GetServerVarAsInt
