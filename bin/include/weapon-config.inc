@@ -63,9 +63,44 @@
 	#endif
 #endif
 
-// Make sure this native is available
-#if !defined IsValidVehicle
-	native IsValidVehicle(vehicleid);
+#if !defined _inc_y_iterate
+	#tryinclude <YSI_Data\y_iterate>
+
+	#if !defined _inc_y_iterate
+		forward OnScriptInit();
+	#endif
+#endif
+
+// Pre-hooks for hooking callbacks
+#if !defined CHAIN_ORDER
+	#define CHAIN_ORDER() 0
+#endif
+
+#define CHAIN_HOOK(%0) forward @CO_%0();public @CO_%0(){return CHAIN_ORDER()+1;}
+#define CHAIN_NEXT(%0) @CO_%0
+
+#define CHAIN_FORWARD:%0_%2(%1)=%3; \
+	forward %0_%2(%1); \
+	public %0_%2(%1) <_ALS : _ALS_x0, _ALS : _ALS_x1> { return (%3); } \
+	public %0_%2(%1) <> { return (%3); }
+
+#define CHAIN_PUBLIC:%0(%1) %0(%1) <_ALS : _ALS_go>
+
+CHAIN_HOOK(WC)
+#undef CHAIN_ORDER
+#define CHAIN_ORDER CHAIN_NEXT(WC)
+
+static stock _WC_IncludeStates() <_ALS : _ALS_x0, _ALS : _ALS_x1, _ALS : _ALS_x2, _ALS : _ALS_x3> {}
+static stock _WC_IncludeStates() <_ALS : _ALS_go> {}
+
+// Provides a way for const correctness support
+// when used with the newer standard libraries
+// https://github.com/sampctl/samp-stdlib/
+// https://github.com/sampctl/pawn-stdlib
+#if !defined SAMP_CONST_CORRECT
+	#define WC_CONST const
+#else
+	#define WC_CONST
 #endif
 
 // Given in OnInvalidWeaponDamage
@@ -127,7 +162,6 @@ enum {
 	SHOOTING_RATE_TOO_FAST_MULTIPLE,
 	HIT_RATE_TOO_FAST,
 	HIT_RATE_TOO_FAST_MULTIPLE,
-	HIT_KNIFE_FAILED,
 	HIT_TOO_FAR_FROM_ORIGIN,
 	HIT_INVALID_DAMAGE,
 	HIT_SAME_VEHICLE,
@@ -156,7 +190,6 @@ stock const g_HitRejectReasons[][] = {
 	"Shooting rate too fast: %d (%d samples, multiple weapons)",
 	"Hit rate too fast: %d (%d samples, max %d)",
 	"Hit rate too fast: %d (%d samples, multiple weapons)",
-	"The knife kill did not sync",
 	"Damage inflicted too far from current position (dist %f)",
 	"Invalid weapon damage (%.4f)",
 	"Hit a player in the same vehicle",
@@ -248,7 +281,7 @@ forward OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart);
 // After OnPlayerDamage
 forward OnPlayerDamageDone(playerid, Float:amount, issuerid, weapon, bodypart);
 // Before the death animation is applied
-forward OnPlayerPrepareDeath(playerid, const animlib[32], const animname[32], &anim_lock, &respawn_time);
+forward OnPlayerPrepareDeath(playerid, animlib[32], animname[32], &anim_lock, &respawn_time);
 // When the death animation is finished and the player has been sent to respawn
 forward OnPlayerDeathFinished(playerid, bool:cancelable);
 // When a shot or damage given is rejected
@@ -800,16 +833,7 @@ stock const g_WeaponName[57][WC_MAX_WEAPON_NAME] = {
 		{1776, 6, -36.14, -57.87, 1003.63, 0.00, 0.00, 180.00, -36.16, -56.87},
 		{1776, 18, -17.54, -91.71, 1003.63, 0.00, 0.00, 180.00, -17.56, -90.71},
 		{1776, 16, -16.53, -140.29, 1003.63, 0.00, 0.00, 180.00, -16.54, -139.29},
-		{1776, 17, -33.87, -186.76, 1003.63, 0.00, 0.00, 180.00, -33.89, -185.76},
-		{1775, 6, -19.03, -57.83, 1003.63, 0.00, 0.00, 180.00, -19.05, -56.83},
-		{1776, 6, -36.14, -57.87, 1003.63, 0.00, 0.00, 180.00, -36.16, -56.87},
-		{1775, 18, -16.11, -91.64, 1003.63, 0.00, 0.00, 180.00, -16.13, -90.64},
-		{1776, 18, -17.54, -91.71, 1003.63, 0.00, 0.00, 180.00, -17.56, -90.71},
-		{1776, 16, -16.53, -140.29, 1003.63, 0.00, 0.00, 180.00, -16.54, -139.29},
-		{1775, 16, -15.10, -140.22, 1003.63, 0.00, 0.00, 180.00, -15.11, -139.22},
-		{1776, 17, -33.87, -186.76, 1003.63, 0.00, 0.00, 180.00, -33.89, -185.76},
-		{1775, 17, -32.44, -186.69, 1003.63, 0.00, 0.00, 180.00, -32.46, -185.69},
-		{1775, 16, -35.72, -140.22, 1003.63, 0.00, 0.00, 180.00, -35.74, -139.22}
+		{1776, 17, -33.87, -186.76, 1003.63, 0.00, 0.00, 180.00, -33.89, -185.76}
 	};
 #endif
 
@@ -905,8 +929,9 @@ static Float:s_DamageDoneHealth[MAX_PLAYERS];
 static Float:s_DamageDoneArmour[MAX_PLAYERS];
 static s_DelayedDeathTimer[MAX_PLAYERS] = {-1, ...};
 static bool:s_VehicleAlive[MAX_VEHICLES] = {false, ...};
-static s_VehicleRespawnTimer[MAX_VEHICLES] = {-1, ...};
 static bool:s_EnableHealthBar[MAX_PLAYERS];
+static s_VehicleRespawnTimer[MAX_VEHICLES] = {-1, ...};
+
 native WC_IsValidVehicle(vehicleid) = IsValidVehicle;
 
 /*
@@ -1044,8 +1069,8 @@ stock ReturnWeaponName(weaponid)
 }
 stock EnableHealthBarForPlayer(playerid, bool:enable)
 {
-	if (playerid != INVALID_PLAYER_ID)
-	{		
+	if (IsPlayerConnected(playerid))
+	{
 		s_EnableHealthBar[playerid] = enable;
 		SetHealthBarVisible(playerid, enable);
 		#if WC_DEBUG
@@ -1055,7 +1080,6 @@ stock EnableHealthBarForPlayer(playerid, bool:enable)
 	}
 	return false;
 }
-
 stock SetWeaponDamage(weaponid, damage_type, Float:amount, Float:...)
 {
 	if (weaponid < 0 || weaponid >= sizeof(s_WeaponDamage)) {
@@ -1127,16 +1151,11 @@ stock SetCbugAllowed(bool:enabled, playerid = INVALID_PLAYER_ID)
 {
 	if (playerid == INVALID_PLAYER_ID) {
 		s_CbugGlobal = enabled;
-
 		#if defined _inc_y_iterate
 		foreach (new i : Player) {
-		#else
-		for (new i = GetPlayerPoolSize(); i >= 0; --i) {
-			if (!IsPlayerConnected(i)) {
-				continue;
-			}
+		#else 
+		for (new i = GetPlayerPoolSize(); i != -1; i--) {
 		#endif
-
 			s_CbugAllowed[i] = enabled;
 		}
 	} else {
@@ -1215,13 +1234,9 @@ stock SetDamageFeed(bool:toggle)
 
 	#if defined _inc_y_iterate
 	foreach (new i : Player) {
-	#else
-	for (new i = GetPlayerPoolSize(); i >= 0; --i) {
-		if (!IsPlayerConnected(i)) {
-			continue;
-		}
+	#else 
+	for (new i = GetPlayerPoolSize(); i != -1; i--) {
 	#endif
-
 		DamageFeedUpdate(i);
 	}
 }
@@ -1512,22 +1527,30 @@ stock WC_SetPlayerTeam(playerid, team)
 	}
 
 	s_PlayerTeam[playerid] = team;
+	SetPlayerTeam(playerid, team);
 
 	return 1;
 }
 
 stock WC_SendDeathMessage(killer, killee, weapon)
 {
-	if (weapon == WEAPON_CARPARK) {
-		weapon = WEAPON_VEHICLE;
-	} else if (weapon == WEAPON_PISTOLWHIP) {
-		weapon = WEAPON_UNARMED;
-	} else if (weapon == WEAPON_UNKNOWN) {
-		weapon = WEAPON_DROWN;
-	} else if (weapon == WEAPON_VEHICLE_M4) {
-		weapon = WEAPON_M4;
-	} if (weapon == WEAPON_VEHICLE_MINIGUN) {
-		weapon = WEAPON_MINIGUN;
+	switch (weapon) {
+
+		case WEAPON_CARPARK: {
+			weapon = WEAPON_VEHICLE;
+		}
+		case WEAPON_PISTOLWHIP: {
+			weapon = WEAPON_UNARMED;
+		}
+		case WEAPON_UNKNOWN: {
+			weapon = WEAPON_DROWN;
+		}
+		case WEAPON_VEHICLE_M4: {
+			weapon = WEAPON_M4;
+		}
+		case WEAPON_VEHICLE_MINIGUN: {
+			weapon = WEAPON_MINIGUN;
+		}
 	}
 
 	SendDeathMessage(killer, killee, weapon);
@@ -1751,7 +1774,6 @@ stock WC_PlayerSpectatePlayer(playerid, targetplayerid, mode = SPECTATE_MODE_NOR
 {
 	if (PlayerSpectatePlayer(playerid, targetplayerid, mode)) {
 		s_Spectating[playerid] = targetplayerid;
-		
 		return 1;
 	}
 
@@ -1827,7 +1849,7 @@ stock WC_SetPlayerSpecialAction(playerid, actionid)
 	return SetPlayerSpecialAction(playerid, actionid);
 }
 
-stock Text:WC_TextDrawCreate(Float:x, Float:y, text[])
+stock Text:WC_TextDrawCreate(Float:x, Float:y, WC_CONST text[])
 {
 	new Text:td = TextDrawCreate(x, y, text);
 
@@ -1940,7 +1962,7 @@ stock WC_TextDrawHideForAll(Text:text)
 	return TextDrawHideForAll(text);
 }
 
-stock WC_TextDrawSetString(Text:text, string[])
+stock WC_TextDrawSetString(Text:text, WC_CONST string[])
 {
 	if (_:text < 0 || text >= Text:MAX_TEXT_DRAWS || s_InternalTextDraw[text]) return 0;
 	return TextDrawSetString(text, string);
@@ -1964,7 +1986,7 @@ stock WC_TextDrawSetPreviewVehCol(Text:text, color1, color2)
 	return TextDrawSetPreviewVehCol(text, color1, color2);
 }
 
-stock PlayerText:WC_CreatePlayerTextDraw(playerid, Float:x, Float:y, const text[])
+stock PlayerText:WC_CreatePlayerTextDraw(playerid, Float:x, Float:y, WC_CONST text[])
 {
 	if (playerid < 0 || playerid >= MAX_PLAYERS) return PlayerText:INVALID_TEXT_DRAW;
 	new PlayerText:td = CreatePlayerTextDraw(playerid, x, y, text);
@@ -2081,7 +2103,7 @@ stock WC_PlayerTextDrawHide(playerid, PlayerText:text)
 	return PlayerTextDrawHide(playerid, text);
 }
 
-stock WC_PlayerTextDrawSetString(playerid, PlayerText:text, const string[])
+stock WC_PlayerTextDrawSetString(playerid, PlayerText:text, WC_CONST string[])
 {
 	if (playerid < 0 || playerid >= MAX_PLAYERS) return 0;
 	if (_:text < 0 || text >= PlayerText:MAX_PLAYER_TEXT_DRAWS || s_InternalPlayerTextDraw[playerid][text]) return 0;
@@ -2112,48 +2134,39 @@ stock WC_PlayerTextDrawSetPreviewVehC(playerid, PlayerText:text, color1, color2)
 /*
  * Hooked callbacks
  */
+public OnScriptInit()
+{
+	state _ALS : _ALS_go;
+
+	return WC_OnScriptInit();
+}
+
 public OnGameModeInit()
 {
 	ScriptInit();
 
-	#if defined WC_OnGameModeInit
-		return WC_OnGameModeInit();
-	#else
-		return 1;
-	#endif
+	return WC_OnGameModeInit();
 }
 
 public OnGameModeExit()
 {
 	ScriptExit();
 
-	#if defined WC_OnGameModeExit
-		return WC_OnGameModeExit();
-	#else
-		return 1;
-	#endif
+	return WC_OnGameModeExit();
 }
 
 public OnFilterScriptInit()
 {
 	ScriptInit();
 
-	#if defined WC_OnFilterScriptInit
-		return WC_OnFilterScriptInit();
-	#else
-		return 1;
-	#endif
+	return WC_OnFilterScriptExit();
 }
 
 public OnFilterScriptExit()
 {
 	ScriptExit();
 
-	#if defined WC_OnFilterScriptExit
-		return WC_OnFilterScriptExit();
-	#else
-		return 1;
-	#endif
+	return WC_OnFilterScriptExit();
 }
 
 public OnPlayerConnect(playerid)
@@ -2184,7 +2197,6 @@ public OnPlayerConnect(playerid)
 	s_DamageFeedLastUpdate[playerid] = tick;
 	s_Spectating[playerid] = INVALID_PLAYER_ID;
 	s_HealthBarVisible[playerid] = false;
-	s_EnableHealthBar[playerid] = true;
 	s_LastSentHealth[playerid] = 0;
 	s_LastSentArmour[playerid] = 0;
 	s_LastStop[playerid] = tick;
@@ -2204,6 +2216,7 @@ public OnPlayerConnect(playerid)
 	s_DeathTimer[playerid] = -1;
 	s_DelayedDeathTimer[playerid] = -1;
 	s_DamageFeedPlayer[playerid] = -1;
+	s_EnableHealthBar[playerid] = true; //enable by default
 
 	for (new i = 0; i < sizeof(s_PreviousHits[]); i++) {
 		s_PreviousHits[playerid][i][e_Tick] = 0;
@@ -2218,8 +2231,8 @@ public OnPlayerConnect(playerid)
 		s_DamageFeedHitsTaken[playerid][i][e_Tick] = 0;
 	}
 
-	SetPlayerTeam(playerid, 0xFE);
-	FreezeSyncData(playerid, false);
+	SetPlayerTeam(playerid, s_PlayerTeam[playerid]);
+	FreezeSyncPacket(playerid, .toggle = false);
 	SetFakeFacingAngle(playerid, _);
 	DamageFeedUpdate(playerid);
 
@@ -2231,19 +2244,13 @@ public OnPlayerConnect(playerid)
 
 	s_AlreadyConnected[playerid] = false;
 
-	#if defined WC_OnPlayerConnect
-		return WC_OnPlayerConnect(playerid);
-	#else
-		return 1;
-	#endif
+	return WC_OnPlayerConnect(playerid);
 }
 
 public OnPlayerDisconnect(playerid, reason)
 {
-	#if defined WC_OnPlayerDisconnect
-		WC_OnPlayerDisconnect(playerid, reason);
-	#endif
-	
+	WC_OnPlayerDisconnect(playerid, reason);
+
 	#if WC_CUSTOM_VENDING_MACHINES
 		if (s_VendingUseTimer[playerid] != -1) {
 			KillTimer(s_VendingUseTimer[playerid]);
@@ -2305,13 +2312,9 @@ public OnPlayerDisconnect(playerid, reason)
 
 	#if defined _inc_y_iterate
 	foreach (new i : Player) {
-	#else
-	for (new i = GetPlayerPoolSize(); i >= 0; --i) {
-		if (!IsPlayerConnected(i)) {
-			continue;
-		}
+	#else 
+	for (new i = GetPlayerPoolSize(); i != -1; i--) {
 	#endif
-
 		for (new j = 0; j < sizeof(s_PreviousHits[]); j++) {
 			if (s_PreviousHits[i][j][e_Issuer] == playerid) {
 				s_PreviousHits[i][j][e_Issuer] = INVALID_PLAYER_ID;
@@ -2422,13 +2425,15 @@ public OnPlayerSpawn(playerid)
 
 	UpdatePlayerVirtualWorld(playerid);
 	UpdateHealthBar(playerid, true);
-	FreezeSyncData(playerid, false);
+	FreezeSyncPacket(playerid, .toggle = false);
 	SetFakeFacingAngle(playerid, _);
 	DamageFeedUpdate(playerid);
 
-	if (GetPlayerTeam(playerid) != 0xFE) {
-		SetPlayerTeam(playerid, 0xFE);
+	if (GetPlayerTeam(playerid) != s_PlayerTeam[playerid]) {
+		SetPlayerTeam(playerid, s_PlayerTeam[playerid]);
 	}
+
+	new animlib[32], animname[32];
 
 	if (s_DeathSkip[playerid] == 2) {
 		DebugMessage(playerid, "Death skipped");
@@ -2436,7 +2441,9 @@ public OnPlayerSpawn(playerid)
 		GivePlayerWeapon(playerid, 0, 1);
 		SetPlayerArmedWeapon(playerid, 0);
 		ClearAnimations(playerid);
-		ApplyAnimation(playerid, "PED", "IDLE_stance", 4.1, 1, 0, 0, 0, 1, 1);
+
+		animlib = "PED", animname = "IDLE_stance";
+		ApplyAnimation(playerid, animlib, animname, 4.1, 1, 0, 0, 0, 1, 1);
 
 		s_DeathSkip[playerid] = 1;
 		s_DeathSkipTick[playerid] = GetTickCount();
@@ -2449,16 +2456,13 @@ public OnPlayerSpawn(playerid)
 
 		#if WC_CUSTOM_VENDING_MACHINES
 			if (s_CustomVendingMachines) {
-				ApplyAnimation(playerid, "VENDING", "null", 0, 0, 0, 0, 0, 0);
+				animlib = "VENDING", animname = "null";
+				ApplyAnimation(playerid, animlib, animname, 0.0, 0, 0, 0, 0, 0, 0);
 			}
 		#endif
 	}
 
-	#if defined WC_OnPlayerSpawn
-		return WC_OnPlayerSpawn(playerid);
-	#else
-		return 1;
-	#endif
+	return WC_OnPlayerSpawn(playerid);
 }
 
 public OnPlayerRequestClass(playerid, classid)
@@ -2494,7 +2498,7 @@ public OnPlayerRequestClass(playerid, classid)
 		s_IsDying[playerid] = false;
 	}
 
-	FreezeSyncData(playerid, false);
+	FreezeSyncPacket(playerid, .toggle = false);
 	UpdatePlayerVirtualWorld(playerid);
 
 	if (s_TrueDeath[playerid]) {
@@ -2510,19 +2514,13 @@ public OnPlayerRequestClass(playerid, classid)
 			s_InClassSelection[playerid] = true;
 		}
 
-		#if defined WC_OnPlayerRequestClass
-			if (WC_OnPlayerRequestClass(playerid, classid)) {
-				s_PlayerClass[playerid] = classid;
-
-				return 1;
-			} else {
-				return 0;
-			}
-		#else
+		if (WC_OnPlayerRequestClass(playerid, classid)) {
 			s_PlayerClass[playerid] = classid;
 
 			return 1;
-		#endif
+		} else {
+			return 0;
+		}
 	} else {
 		DebugMessage(playerid, "Not true death - being respawned");
 
@@ -2575,7 +2573,7 @@ public OnPlayerDeath(playerid, killerid, reason)
 	new vehicleid = GetPlayerVehicleID(playerid);
 
 	// Let's assume they died from an exploading vehicle
-	if (vehicleid != INVALID_VEHICLE_ID && IsValidVehicle(vehicleid)) {
+	if (vehicleid != INVALID_VEHICLE_ID && WC_IsValidVehicle(vehicleid)) {
 		reason = WEAPON_EXPLOSION;
 		killerid = INVALID_PLAYER_ID;
 
@@ -2641,9 +2639,7 @@ public OnPlayerDeath(playerid, killerid, reason)
 
 		OnPlayerPrepareDeath(playerid, animlib, animname, anim_lock, respawn_time);
 
-		#if defined WC_OnPlayerDeath
-			WC_OnPlayerDeath(playerid, killerid, reason);
-		#endif
+		WC_OnPlayerDeath(playerid, killerid, reason);
 
 		OnPlayerDeathFinished(playerid, false);
 	} else {
@@ -2663,10 +2659,10 @@ public OnPlayerDeath(playerid, killerid, reason)
 			s_DeathSkip[playerid] = 2;
 
 			ForceClassSelection(playerid);
-			SetSpawnInfo(playerid, 0xFE, GetPlayerSkin(playerid), x, y, z, r, 0, 0, 0, 0, 0, 0);
+			SetSpawnInfo(playerid, s_PlayerTeam[playerid], GetPlayerSkin(playerid), x, y, z, r, 0, 0, 0, 0, 0, 0);
 			TogglePlayerSpectating(playerid, true);
 			TogglePlayerSpectating(playerid, false);
-			SetSpawnInfo(playerid, 0xFE, GetPlayerSkin(playerid), x, y, z, r, 0, 0, 0, 0, 0, 0);
+			SetSpawnInfo(playerid, s_PlayerTeam[playerid], GetPlayerSkin(playerid), x, y, z, r, 0, 0, 0, 0, 0, 0);
 			TogglePlayerControllable(playerid, true);
 			GivePlayerWeapon(playerid, 1, 1);
 		} else {
@@ -2683,19 +2679,21 @@ static Float:AngleBetweenPoints(Float:x1, Float:y1, Float:x2, Float:y2);
 
 forward WC_CbugPunishment(playerid, weapon);
 public WC_CbugPunishment(playerid, weapon) {
-	FreezeSyncData(playerid, false);
+	FreezeSyncPacket(playerid, .toggle = false);
 	ClearAnimations(playerid, 1);
 	SetPlayerArmedWeapon(playerid, weapon);
 }
 
 public OnPlayerKeyStateChange(playerid, newkeys, oldkeys)
 {
+	new animlib[32], animname[32];
+
 	if (!s_CbugAllowed[playerid] && !IsPlayerDying(playerid) && GetPlayerState(playerid) == PLAYER_STATE_ONFOOT) {
 		if (newkeys & KEY_CROUCH) {
 			new tick = GetTickCount();
 			new diff = tick - s_LastShot[playerid][e_Tick];
 
-			if (s_LastShot[playerid][e_Tick] && diff < 1200 && !s_CbugFroze[playerid]) {
+			if (s_LastShot[playerid][e_Tick] && diff < 1200 && !s_CbugFroze[playerid]) {	
 				PlayerPlaySound(playerid, 1055, 0.0, 0.0, 0.0);
 
 				if (s_LastShot[playerid][e_Valid] && floatabs(s_LastShot[playerid][e_HX]) > 1.0 && floatabs(s_LastShot[playerid][e_HY]) > 1.0) {
@@ -2710,9 +2708,10 @@ public OnPlayerKeyStateChange(playerid, newkeys, oldkeys)
 				new w, a;
 				GetPlayerWeaponData(playerid, 0, w, a);
 
+				animlib = "PED", animname = "IDLE_stance";
 				ClearAnimations(playerid, 1);
-				ApplyAnimation(playerid, "PED", "IDLE_stance", 4.1, 1, 0, 0, 0, 0, 1);
-				FreezeSyncData(playerid, true);
+				ApplyAnimation(playerid, animlib, animname, 4.1, 1, 0, 0, 0, 0, 1);
+				FreezeSyncPacket(playerid, .toggle = true);
 				SetPlayerArmedWeapon(playerid, w);
 				SetTimerEx("WC_CbugPunishment", 600, false, "ii", playerid, GetPlayerWeapon(playerid));
 
@@ -2720,13 +2719,9 @@ public OnPlayerKeyStateChange(playerid, newkeys, oldkeys)
 
 				#if defined _inc_y_iterate
 				foreach (new i : Player) {
-				#else
-				for (new i = GetPlayerPoolSize(); i >= 0; --i) {
-					if (!IsPlayerConnected(i)) {
-						continue;
-					}
+				#else 
+				for (new i = GetPlayerPoolSize(); i != -1; i--) {
 				#endif
-
 					for (new j = 0; j < sizeof(s_PreviousHits[]); j++) {
 						if (s_PreviousHits[i][j][e_Issuer] == playerid && tick - s_PreviousHits[i][j][e_Tick] <= 1200) {
 							s_PreviousHits[i][j][e_Issuer] = INVALID_PLAYER_ID;
@@ -2743,7 +2738,7 @@ public OnPlayerKeyStateChange(playerid, newkeys, oldkeys)
 								s_DelayedDeathTimer[i] = -1;
 								ClearAnimations(i, 1);
 								SetFakeFacingAngle(i, _);
-								FreezeSyncData(i, false);
+								FreezeSyncPacket(i, .toggle = false);
 
 								s_IsDying[i] = false;
 
@@ -2797,9 +2792,10 @@ public OnPlayerKeyStateChange(playerid, newkeys, oldkeys)
 						if (OnPlayerUseVendingMachine(playerid, health_given)) {
 							s_VendingUseTimer[playerid] = SetTimerEx("WC_VendingMachineUsed", 2500, false, "if", playerid, health_given);
 
+							animlib = "VENDING", animname = "VEND_USE";
 							SetPlayerFacingAngle(playerid, sc_VendingMachines[i][e_RotZ]);
 							SetPlayerPos(playerid, sc_VendingMachines[i][e_FrontX], sc_VendingMachines[i][e_FrontY], z);
-							ApplyAnimation(playerid, "VENDING", "VEND_USE", 4.1, 0, 0, 1, 0, 0, 1);
+							ApplyAnimation(playerid, animlib, animname, 4.1, 0, 0, 1, 0, 0, 1);
 
 							PlayerPlaySound(playerid, 42600, 0.0, 0.0, 0.0);
 						} else {
@@ -2827,25 +2823,17 @@ public OnPlayerKeyStateChange(playerid, newkeys, oldkeys)
 		}
 	}
 
-	#if defined WC_OnPlayerKeyStateChange
-		return WC_OnPlayerKeyStateChange(playerid, newkeys, oldkeys);
-	#else
-		return 1;
-	#endif
+	return WC_OnPlayerKeyStateChange(playerid, newkeys, oldkeys);
 }
 
 public OnPlayerStreamIn(playerid, forplayerid)
 {
 	// Send ped floor_hit_f
 	if (s_IsDying[playerid]) {
-		SendLastSyncData(playerid, forplayerid, 0x2e040000 + 1150);
+		SendLastSyncPacket(playerid, forplayerid, .animation = 0x2e040000 + 1150);
 	}
 
-	#if defined WC_OnPlayerStreamIn
-		return WC_OnPlayerStreamIn(playerid, forplayerid);
-	#else
-		return 1;
-	#endif
+	return WC_OnPlayerStreamIn(playerid, forplayerid);
 }
 
 public OnPlayerEnterVehicle(playerid, vehicleid, ispassenger)
@@ -2860,22 +2848,14 @@ public OnPlayerEnterVehicle(playerid, vehicleid, ispassenger)
 	s_LastVehicleEnterTime[playerid] = gettime();
 	s_LastVehicleTick[playerid] = GetTickCount();
 
-	#if defined WC_OnPlayerEnterVehicle
-		return WC_OnPlayerEnterVehicle(playerid, vehicleid, ispassenger);
-	#else
-		return 1;
-	#endif
+	return WC_OnPlayerEnterVehicle(playerid, vehicleid, ispassenger);
 }
 
 public OnPlayerExitVehicle(playerid, vehicleid)
 {
 	s_LastVehicleTick[playerid] = GetTickCount();
 
-	#if defined WC_OnPlayerExitVehicle
-		return WC_OnPlayerExitVehicle(playerid, vehicleid);
-	#else
-		return 1;
-	#endif
+	return WC_OnPlayerExitVehicle(playerid, vehicleid);
 }
 
 public OnPlayerStateChange(playerid, newstate, oldstate)
@@ -2905,15 +2885,11 @@ public OnPlayerStateChange(playerid, newstate, oldstate)
 			if (vx*vx + vy*vy + vz*vz <= 0.05) {
 				#if defined _inc_y_iterate
 				foreach (new i : Player) {
-				#else
-				for (new i = GetPlayerPoolSize(); i >= 0; --i) {
-					if (!IsPlayerConnected(i)) {
-						continue;
-					}
+				#else 
+				for (new i = GetPlayerPoolSize(); i != -1; i--) {
 				#endif
-
 					if (i != playerid && IsPlayerStreamedIn(playerid, i)) {
-						SendLastSyncData(playerid, i);
+						SendLastSyncPacket(playerid, i);
 						ClearAnimationsForPlayer(playerid, i);
 					}
 				}
@@ -2933,11 +2909,7 @@ public OnPlayerStateChange(playerid, newstate, oldstate)
 		}
 	}
 
-	#if defined WC_OnPlayerStateChange
-		return WC_OnPlayerStateChange(playerid, newstate, oldstate);
-	#else
-		return 1;
-	#endif
+	return WC_OnPlayerStateChange(playerid, newstate, oldstate);
 }
 
 public OnPlayerPickUpPickup(playerid, pickupid)
@@ -2946,11 +2918,7 @@ public OnPlayerPickUpPickup(playerid, pickupid)
 		return 0;
 	}
 
-	#if defined WC_OnPlayerPickUpPickup
-		return WC_OnPlayerPickUpPickup(playerid, pickupid);
-	#else
-		return 1;
-	#endif
+	return WC_OnPlayerPickUpPickup(playerid, pickupid);
 }
 
 public OnPlayerUpdate(playerid)
@@ -2967,11 +2935,12 @@ public OnPlayerUpdate(playerid)
 				GetPlayerPos(playerid, x, y, z);
 				GetPlayerFacingAngle(playerid, r);
 
-				SetSpawnInfo(playerid, 0xFE, GetPlayerSkin(playerid), x, y, z, r, 0, 0, 0, 0, 0, 0);
+				SetSpawnInfo(playerid, s_PlayerTeam[playerid], GetPlayerSkin(playerid), x, y, z, r, 0, 0, 0, 0, 0, 0);
 
 				s_DeathSkipTick[playerid] = 0;
 
-				ApplyAnimation(playerid, "PED", "IDLE_stance", 4.1, 1, 0, 0, 0, 1, 1);
+				new animlib[32] = "PED", animname[32] = "IDLE_stance";
+				ApplyAnimation(playerid, animlib, animname, 4.1, 1, 0, 0, 0, 1, 1);
 			}
 		} else {
 			if (GetPlayerAnimationIndex(playerid) != 1189) {
@@ -3056,20 +3025,12 @@ public OnPlayerUpdate(playerid)
 					DebugMessage(playerid, "fall dmg: %.5f (vz: %f, anim: %d, prev: %d)", amount, vz, anim, prev);
 
 					InflictDamage(playerid, amount, INVALID_PLAYER_ID, WEAPON_COLLISION, 3);
-
-					if (amount == 0.0) {
-						amount = s_PlayerHealth[playerid];
-					}
 				}
 			}
 		}
 	}
 
-	#if defined WC_OnPlayerUpdate
-		return WC_OnPlayerUpdate(playerid);
-	#else
-		return 1;
-	#endif
+	return WC_OnPlayerUpdate(playerid);
 }
 
 public OnPlayerGiveDamage(playerid, damagedid, Float:amount, weaponid, bodypart)
@@ -3079,10 +3040,8 @@ public OnPlayerGiveDamage(playerid, damagedid, Float:amount, weaponid, bodypart)
 	}
 
 	// Nobody got damaged
-	if (damagedid == INVALID_PLAYER_ID) {
-		#if defined OnInvalidWeaponDamage
-			OnInvalidWeaponDamage(playerid, damagedid, amount, weaponid, bodypart, WC_NO_DAMAGED, true);
-		#endif
+	if (!IsPlayerConnected(damagedid)) {
+		OnInvalidWeaponDamage(playerid, damagedid, amount, weaponid, bodypart, WC_NO_DAMAGED, true);
 
 		AddRejectedHit(playerid, damagedid, HIT_NO_DAMAGEDID, weaponid);
 
@@ -3171,13 +3130,12 @@ public OnPlayerGiveDamage(playerid, damagedid, Float:amount, weaponid, bodypart)
 
 			ClearAnimations(damagedid, 1);
 
-			PlayerDeath(damagedid, "KNIFE", "KILL_Knife_Ped_Damage", _, 5200);
+			new animlib[32] = "KNIFE", animname[32] = "KILL_Knife_Ped_Damage";
+			PlayerDeath(damagedid, animlib, animname, _, 5200);
 
 			SetTimerEx("WC_SecondKnifeAnim", 2200, false, "i", damagedid);
 
-			#if defined WC_OnPlayerDeath
-				WC_OnPlayerDeath(damagedid, playerid, weaponid);
-			#endif
+			WC_OnPlayerDeath(damagedid, playerid, weaponid);
 
 			DebugMessage(damagedid, "being knifed by %d", playerid);
 			DebugMessage(playerid, "knifing %d", damagedid);
@@ -3199,7 +3157,8 @@ public OnPlayerGiveDamage(playerid, damagedid, Float:amount, weaponid, bodypart)
 				forcesync = 1;
 			}
 
-			ApplyAnimation(playerid, "KNIFE", "KILL_Knife_Player", 4.1, 0, 1, 1, 0, 1800, forcesync);
+			animlib = "KNIFE", animname = "KILL_Knife_Player";
+			ApplyAnimation(playerid, animlib, animname, 4.1, 0, 1, 1, 0, 1800, forcesync);
 
 			return 0;
 		}
@@ -3224,9 +3183,7 @@ public OnPlayerGiveDamage(playerid, damagedid, Float:amount, weaponid, bodypart)
 		}
 
 		if (err != WC_INVALID_DISTANCE) {
-			#if defined OnInvalidWeaponDamage
-				OnInvalidWeaponDamage(playerid, damagedid, amount, weaponid, bodypart, err, true);
-			#endif
+			OnInvalidWeaponDamage(playerid, damagedid, amount, weaponid, bodypart, err, true);
 		}
 
 		return 0;
@@ -3321,7 +3278,7 @@ public OnPlayerGiveDamage(playerid, damagedid, Float:amount, weaponid, bodypart)
 
 public OnPlayerTakeDamage(playerid, issuerid, Float:amount, weaponid, bodypart)
 {
-	if (playerid == INVALID_PLAYER_ID || IsPlayerNPC(playerid)) {
+	if (IsPlayerNPC(playerid)) {
 		return 0;
 	}
 
@@ -3403,11 +3360,10 @@ public OnPlayerTakeDamage(playerid, issuerid, Float:amount, weaponid, bodypart)
 
 			OnPlayerDamageDone(playerid, s_PlayerHealth[playerid] + s_PlayerArmour[playerid], issuerid, weaponid, bodypart);
 
-			PlayerDeath(playerid, "KNIFE", "KILL_Knife_Ped_Die", _, 4000 - GetPlayerPing(playerid));
+			new animlib[32] = "KNIFE", animname[32] = "KILL_Knife_Ped_Die";
+			PlayerDeath(playerid, animlib, animname, _, 4000 - GetPlayerPing(playerid));
 
-			#if defined WC_OnPlayerDeath
-				WC_OnPlayerDeath(playerid, issuerid, weaponid);
-			#endif
+			WC_OnPlayerDeath(playerid, issuerid, weaponid);
 
 			SetPlayerHealth(playerid, Float:0x7f7fffff);
 
@@ -3431,7 +3387,8 @@ public OnPlayerTakeDamage(playerid, issuerid, Float:amount, weaponid, bodypart)
 				forcesync = 1;
 			}
 
-			ApplyAnimation(issuerid, "KNIFE", "KILL_Knife_Player", 4.1, 0, 1, 1, 0, 1800, forcesync);
+			animlib = "KNIFE", animname = "KILL_Knife_Player";
+			ApplyAnimation(issuerid, animlib, animname, 4.1, 0, 1, 1, 0, 1800, forcesync);
 
 			return 0;
 		}
@@ -3447,19 +3404,33 @@ public OnPlayerTakeDamage(playerid, issuerid, Float:amount, weaponid, bodypart)
 	}
 
 	// Should still be damaged by grenades or fire after someone has died
-	if (issuerid != INVALID_PLAYER_ID) {
+	if (issuerid != INVALID_PLAYER_ID && IsPlayerConnected(issuerid)) {
 		if (HasSameTeam(playerid, issuerid)) {
 			return 0;
 		}
 
 		if (s_IsDying[issuerid] && (IsBulletWeapon(weaponid) || IsMeleeWeapon(weaponid))) {
 			DebugMessageRed(playerid, "shot/punched by dead player (%d)", issuerid);
-
 			return 0;
 		}
 
 		if (s_BeingResynced[issuerid]) {
 			return 0;
+		}
+
+		// https://github.com/oscar-broman/samp-weapon-config/issues/104
+		if(weaponid == WEAPON_COLLISION
+		|| weaponid == WEAPON_DROWN) {
+			return 0;
+		}
+
+		// https://github.com/oscar-broman/samp-weapon-config/issues/104
+		if(weaponid == WEAPON_VEHICLE
+		|| weaponid == WEAPON_CARPARK
+		|| weaponid == WEAPON_HELIBLADES) {
+			if(!IsPlayerInAnyVehicle(issuerid)) {
+				return 0;
+			}
 		}
 	}
 
@@ -3471,9 +3442,7 @@ public OnPlayerTakeDamage(playerid, issuerid, Float:amount, weaponid, bodypart)
 		}
 
 		if (err != WC_INVALID_DISTANCE) {
-			#if defined OnInvalidWeaponDamage
-				OnInvalidWeaponDamage(issuerid, playerid, amount, weaponid, bodypart, err, false);
-			#endif
+			OnInvalidWeaponDamage(issuerid, playerid, amount, weaponid, bodypart, err, false);
 		}
 
 		return 0;
@@ -3688,13 +3657,9 @@ public OnPlayerWeaponShot(playerid, weaponid, hittype, hitid, Float:fX, Float:fY
 
 			#if defined _inc_y_iterate
 			foreach (new otherid : Player) {
-			#else
-			for (new otherid = GetPlayerPoolSize(); otherid >= 0; --otherid) {
-				if (!IsPlayerConnected(otherid)) {
-					continue;
-				}
+			#else 
+			for (new otherid = GetPlayerPoolSize(); otherid != -1; otherid--) {
 			#endif
-
 				if (otherid == playerid) {
 					continue;
 				}
@@ -3736,13 +3701,9 @@ public OnPlayerWeaponShot(playerid, weaponid, hittype, hitid, Float:fX, Float:fY
 
 			#if defined _inc_y_iterate
 			foreach (new otherid : Player) {
-			#else
-			for (new otherid = GetPlayerPoolSize(); otherid >= 0; --otherid) {
-				if (!IsPlayerConnected(otherid)) {
-					continue;
-				}
+			#else 
+			for (new otherid = GetPlayerPoolSize(); otherid != -1; otherid--) {
 			#endif
-
 				if (otherid == playerid) {
 					continue;
 				}
@@ -3780,11 +3741,7 @@ public OnPlayerWeaponShot(playerid, weaponid, hittype, hitid, Float:fX, Float:fY
 
 	new retval = 1;
 
-	#if defined WC_OnPlayerWeaponShot
-		retval = WC_OnPlayerWeaponShot(playerid, weaponid, hittype, hitid, fX, fY, fZ);
-	#else
-		retval = 1;
-	#endif
+	retval = WC_OnPlayerWeaponShot(playerid, weaponid, hittype, hitid, fX, fY, fZ);
 
 	s_LastShot[playerid][e_Valid] = !!retval;
 
@@ -3824,13 +3781,9 @@ public OnVehicleSpawn(vehicleid)
 	}
 
 	s_VehicleAlive[vehicleid] = true;
+	s_LastVehicleShooter[vehicleid] = INVALID_PLAYER_ID;
 
-
-	#if defined WC_OnVehicleSpawn
-		return WC_OnVehicleSpawn(vehicleid);
-	#else
-		return 1;
-	#endif
+	return WC_OnVehicleSpawn(vehicleid);
 }
 
 
@@ -3843,11 +3796,7 @@ public OnVehicleDeath(vehicleid, killerid)
 	if (s_VehicleAlive[vehicleid]) {
 		s_VehicleAlive[vehicleid] = false;
 
-		#if defined WC_OnVehicleDeath
-			return WC_OnVehicleDeath(vehicleid, killerid);
-		#else
-			return 1;
-		#endif
+		return WC_OnVehicleDeath(vehicleid, killerid);
 	}
 	return 1;
 }
@@ -3859,11 +3808,7 @@ public OnPlayerEnterCheckpoint(playerid)
 		return 1;
 	}
 
-	#if defined WC_OnPlayerEnterCheckpoint
-		return WC_OnPlayerEnterCheckpoint(playerid);
-	#else
-		return 1;
-	#endif
+	return WC_OnPlayerEnterCheckpoint(playerid);
 }
 
 public OnPlayerLeaveCheckpoint(playerid)
@@ -3873,11 +3818,7 @@ public OnPlayerLeaveCheckpoint(playerid)
 		return 1;
 	}
 
-	#if defined WC_OnPlayerLeaveCheckpoint
-		return WC_OnPlayerLeaveCheckpoint(playerid);
-	#else
-		return 1;
-	#endif
+	return WC_OnPlayerLeaveCheckpoint(playerid);
 }
 
 /*
@@ -3935,22 +3876,12 @@ static ScriptInit()
 
 	#if defined _inc_y_iterate
 	foreach (new playerid : Player) {
-	#else
-	for (new playerid = GetPlayerPoolSize(); playerid >= 0; --playerid) {
-		if (!IsPlayerConnected(playerid)) {
-			continue;
-		}
+	#else 
+	for (new playerid = GetPlayerPoolSize(); playerid != -1; playerid--) {
 	#endif
+		s_PlayerTeam[playerid] = GetPlayerTeam(playerid);
 
-		new team = GetPlayerTeam(playerid);
-
-		if (team == 0xFE) {
-			s_PlayerTeam[playerid] = NO_TEAM;
-		} else {
-			s_PlayerTeam[playerid] = team;
-		}
-
-		SetPlayerTeam(playerid, 0xFE);
+		SetPlayerTeam(playerid, s_PlayerTeam[playerid]);
 		DamageFeedUpdate(playerid);
 
 		new worldid = GetPlayerVirtualWorld(playerid);
@@ -4011,13 +3942,9 @@ static ScriptExit()
 
 	#if defined _inc_y_iterate
 	foreach (new playerid : Player) {
-	#else
-	for (new playerid = GetPlayerPoolSize(); playerid >= 0; --playerid) {
-		if (!IsPlayerConnected(playerid)) {
-			continue;
-		}
+	#else 
+	for (new playerid = GetPlayerPoolSize(); playerid != -1; playerid--) {
 	#endif
-
 		#if WC_CUSTOM_VENDING_MACHINES
 			if (s_VendingUseTimer[playerid] != -1) {
 				KillTimer(s_VendingUseTimer[playerid]);
@@ -4041,7 +3968,7 @@ static ScriptExit()
 
 		SetFakeHealth(playerid, 255);
 		SetFakeArmour(playerid, 255);
-		FreezeSyncData(playerid, false);
+		FreezeSyncPacket(playerid, .toggle = false);
 		SetFakeFacingAngle(playerid, _);
 		SetHealthBarVisible(playerid, false);
 
@@ -4108,7 +4035,6 @@ static IsPlayerPaused(playerid)
 
 static UpdateHealthBar(playerid, bool:force = false)
 {
-
 	if (s_BeingResynced[playerid] || s_ForceClassSelection[playerid]) {
 		return;
 	}
@@ -4191,8 +4117,7 @@ static UpdateHealthBar(playerid, bool:force = false)
 
 static SetHealthBarVisible(playerid, bool:toggle)
 {
-	if (!s_EnableHealthBar[playerid])
-	{
+	if (!s_EnableHealthBar[playerid]) {
 		toggle = false;
 	}
 	if (s_HealthBarVisible[playerid] == toggle) {
@@ -4232,7 +4157,7 @@ static SpawnPlayerInPlace(playerid) {
 	GetPlayerPos(playerid, x, y, z);
 	GetPlayerFacingAngle(playerid, r);
 
-	SetSpawnInfo(playerid, 0xFE, GetPlayerSkin(playerid), x, y, z, r, 0, 0, 0, 0, 0, 0);
+	SetSpawnInfo(playerid, s_PlayerTeam[playerid], GetPlayerSkin(playerid), x, y, z, r, 0, 0, 0, 0, 0, 0);
 
 	s_SpawnInfoModified[playerid] = true;
 
@@ -4264,15 +4189,11 @@ static UpdateSyncData(playerid)
 
 	#if defined _inc_y_iterate
 	foreach (new i : Player) {
-	#else
-	for (new i = GetPlayerPoolSize(); i >= 0; --i) {
-		if (!IsPlayerConnected(i)) {
-			continue;
-		}
+	#else 
+	for (new i = GetPlayerPoolSize(); i != -1; i--) {
 	#endif
-
 		if (i != playerid && IsPlayerStreamedIn(playerid, i)) {
-			SendLastSyncData(playerid, i);
+			SendLastSyncPacket(playerid, i);
 		}
 	}
 }
@@ -4387,15 +4308,11 @@ public WC_SpawnForStreamedIn(playerid)
 
 	#if defined _inc_y_iterate
 	foreach (new i : Player) {
-	#else
-	for (new i = GetPlayerPoolSize(); i >= 0; --i) {
-		if (!IsPlayerConnected(i)) {
-			continue;
-		}
+	#else 
+	for (new i = GetPlayerPoolSize(); i != -1; i--) {
 	#endif
-
 		if (i != playerid && IsPlayerStreamedIn(playerid, i)) {
-			SendLastSyncData(playerid, i);
+			SendLastSyncPacket(playerid, i);
 			ClearAnimationsForPlayer(playerid, i);
 		}
 	}
@@ -4664,7 +4581,7 @@ static ProcessDamage(&playerid, &issuerid, &Float:amount, &weaponid, &bodypart, 
 			}
 		}
 	}
-	
+
 	// Check deagle damage
 	if (weaponid == WEAPON_DEAGLE) {
 		switch (amount) {
@@ -4791,7 +4708,8 @@ static InflictDamage(playerid, Float:amount, issuerid = INVALID_PLAYER_ID, weapo
 		}
 	#endif
 
-	if (!ignore_armour && weaponid != WEAPON_COLLISION && weaponid != WEAPON_DROWN && weaponid != WEAPON_CARPARK && (!s_DamageArmourToggle[0] || (s_DamageArmour[weaponid][0] && (!s_DamageArmourToggle[1] || ((s_DamageArmour[weaponid][1] && bodypart == 3) || (!s_DamageArmour[weaponid][1])))))) {
+	if (!ignore_armour && weaponid != WEAPON_COLLISION && weaponid != WEAPON_DROWN && weaponid != WEAPON_CARPARK && weaponid != WEAPON_UNKNOWN 
+	&& (!s_DamageArmourToggle[0] || (s_DamageArmour[weaponid][0] && (!s_DamageArmourToggle[1] || ((s_DamageArmour[weaponid][1] && bodypart == 3) || (!s_DamageArmour[weaponid][1])))))) {
 		if (amount <= 0.0) {
 			amount = s_PlayerHealth[playerid] + s_PlayerArmour[playerid];
 		}
@@ -4822,6 +4740,7 @@ static InflictDamage(playerid, Float:amount, issuerid = INVALID_PLAYER_ID, weapo
 	}
 
 	OnPlayerDamageDone(playerid, amount, issuerid, weaponid, bodypart);
+	new animlib[32] = "PED", animname[32];
 
 	if (s_PlayerHealth[playerid] <= 0.0005) {
 		new vehicleid = GetPlayerVehicleID(playerid);
@@ -4839,22 +4758,27 @@ static InflictDamage(playerid, Float:amount, issuerid = INVALID_PLAYER_ID, weapo
 					GetVehicleVelocity(vehicleid, vx, vy, vz);
 
 					if (vx*vx + vy*vy + vz*vz >= 0.4) {
-						PlayerDeath(playerid, "PED", "BIKE_fallR", 0);
+						animname = "BIKE_fallR";
+						PlayerDeath(playerid, animlib, animname, 0);
 					} else {
-						PlayerDeath(playerid, "PED", "BIKE_fall_off", 0);
+						animname = "BIKE_fall_off";
+						PlayerDeath(playerid, animlib, animname, 0);
 					}
 				}
 
 				default: {
 					if (seat & 1) {
-						PlayerDeath(playerid, "PED", "CAR_dead_LHS");
+						animname = "CAR_dead_LHS";
+						PlayerDeath(playerid, animlib, animname);
 					} else {
-						PlayerDeath(playerid, "PED", "CAR_dead_RHS");
+						animname = "CAR_dead_RHS";
+						PlayerDeath(playerid, animlib, animname);
 					}
 				}
 			}
 		} else if (GetPlayerSpecialAction(playerid) == SPECIAL_ACTION_USEJETPACK) {
-			PlayerDeath(playerid, "PED", "KO_skid_back", .freeze_sync = false);
+			animname = "KO_skid_back";
+			PlayerDeath(playerid, animlib, animname, .freeze_sync = false);
 		} else {
 			if (gettime() - s_LastVehicleEnterTime[playerid] < 10) {
 				TogglePlayerControllable(playerid, false);
@@ -4864,50 +4788,61 @@ static InflictDamage(playerid, Float:amount, issuerid = INVALID_PLAYER_ID, weapo
 
 			if (anim == 1250 || (1538 <= anim <= 1544) || weaponid == WEAPON_DROWN) {
 				// In water
-				PlayerDeath(playerid, "PED", "Drown");
+				animname = "Drown";
+				PlayerDeath(playerid, animlib, animname);
 			} else if (1195 <= anim <= 1198) {
 				// Jumping animation
-				PlayerDeath(playerid, "PED", "KO_skid_back");
+				animname = "KO_skid_back";
+				PlayerDeath(playerid, animlib, animname);
 			} else if (WEAPON_SHOTGUN <= weaponid <= WEAPON_SHOTGSPA) {
 				if (IsPlayerBehindPlayer(issuerid, playerid)) {
+					animname = "KO_shot_front";
 					MakePlayerFacePlayer(playerid, issuerid, true);
-					PlayerDeath(playerid, "PED", "KO_shot_front");
+					PlayerDeath(playerid, animlib, animname);
 				} else {
+					animname = "BIKE_fall_off";
 					MakePlayerFacePlayer(playerid, issuerid);
-					PlayerDeath(playerid, "PED", "BIKE_fall_off");
+					PlayerDeath(playerid, animlib, animname);
 				}
 			} else if (WEAPON_RIFLE <= weaponid <= WEAPON_SNIPER) {
 				if (bodypart == 9) {
-					PlayerDeath(playerid, "PED", "KO_shot_face");
+					animname = "KO_shot_face";
+					PlayerDeath(playerid, animlib, animname);
 				} else if (IsPlayerBehindPlayer(issuerid, playerid)) {
-					PlayerDeath(playerid, "PED", "KO_shot_front");
+					animname = "KO_shot_front";
+					PlayerDeath(playerid, animlib, animname);
 				} else {
-					PlayerDeath(playerid, "PED", "KO_shot_stom");
+					animname = "KO_shot_stom";
+					PlayerDeath(playerid, animlib, animname);
 				}
 			} else if (IsBulletWeapon(weaponid)) {
 				if (bodypart == 9) {
-					PlayerDeath(playerid, "PED", "KO_shot_face");
+					animname = "KO_shot_face";
+					PlayerDeath(playerid, animlib, animname);
 				} else {
-					PlayerDeath(playerid, "PED", "KO_shot_front");
+					animname = "KO_shot_front";
+					PlayerDeath(playerid, animlib, animname);
 				}
 			} else if (weaponid == WEAPON_PISTOLWHIP) {
-				PlayerDeath(playerid, "PED", "KO_spin_R");
+				animname = "KO_spin_R";
+				PlayerDeath(playerid, animlib, animname);
 			} else if (IsMeleeWeapon(weaponid) || weaponid == WEAPON_CARPARK) {
-				PlayerDeath(playerid, "PED", "KO_skid_front");
+				animname = "KO_skid_front";
+				PlayerDeath(playerid, animlib, animname);
 			} else if (weaponid == WEAPON_SPRAYCAN || weaponid == WEAPON_FIREEXTINGUISHER) {
-				PlayerDeath(playerid, "KNIFE", "KILL_Knife_Ped_Die");
+				animlib = "KNIFE", animname = "KILL_Knife_Ped_Die";
+				PlayerDeath(playerid, animlib, animname);
 			} else {
-				PlayerDeath(playerid, "PED", "KO_skid_back");
+				animname = "KO_skid_back";
+				PlayerDeath(playerid, animlib, animname);
 			}
-		}
+		}		
 
-		#if defined WC_OnPlayerDeath
-			if (s_CbugAllowed[playerid]) {
-				WC_OnPlayerDeath(playerid, issuerid, weaponid);
-			} else {
-				s_DelayedDeathTimer[playerid] = SetTimerEx(#WC_DelayedDeath, 1200, false, "iii", playerid, issuerid, weaponid);
-			}
-		#endif
+		if (s_CbugAllowed[playerid]) {
+			WC_OnPlayerDeath(playerid, issuerid, weaponid);
+		} else {
+			s_DelayedDeathTimer[playerid] = SetTimerEx(#WC_DelayedDeath, 1200, false, "iii", playerid, issuerid, weaponid);
+		}
 	}
 
 	UpdateHealthBar(playerid);
@@ -4917,12 +4852,10 @@ forward WC_DelayedDeath(playerid, issuerid, reason);
 public WC_DelayedDeath(playerid, issuerid, reason) {
 	s_DelayedDeathTimer[playerid] = -1;
 
-	#if defined WC_OnPlayerDeath
-		WC_OnPlayerDeath(playerid, issuerid, reason);
-	#endif
+	WC_OnPlayerDeath(playerid, issuerid, reason);
 }
 
-static PlayerDeath(playerid, const animlib[32], const animname[32], anim_lock = 0, respawn_time = -1, bool:freeze_sync = true, anim_freeze = 1)
+static PlayerDeath(playerid, animlib[32], animname[32], anim_lock = 0, respawn_time = -1, bool:freeze_sync = true, anim_freeze = 1)
 {
 	s_PlayerHealth[playerid] = 0.0;
 	s_PlayerArmour[playerid] = 0.0;
@@ -4947,7 +4880,7 @@ static PlayerDeath(playerid, const animlib[32], const animname[32], anim_lock = 
 	OnPlayerPrepareDeath(playerid, animlib, animname, anim_lock, respawn_time);
 
 	UpdateHealthBar(playerid);
-	FreezeSyncData(playerid, freeze_sync);
+	FreezeSyncPacket(playerid, .toggle = freeze_sync);
 
 	if (respawn_time == -1) {
 		respawn_time = s_RespawnTime;
@@ -4967,18 +4900,14 @@ static PlayerDeath(playerid, const animlib[32], const animname[32], anim_lock = 
 		PlayerTextDrawHide(playerid, s_HealthBarForeground[playerid]);
 	}
 
-	#if defined WC_OnPlayerLeaveCheckpoint
-		if (IsPlayerInCheckpoint(playerid)) {
-			WC_OnPlayerLeaveCheckpoint(playerid);
-		}
-	#endif
+	if (IsPlayerInCheckpoint(playerid)) {
+		WC_OnPlayerLeaveCheckpoint(playerid);
+	}
 }
 
-public OnPlayerPrepareDeath(playerid, const animlib[32], const animname[32], &anim_lock, &respawn_time)
+public OnPlayerPrepareDeath(playerid, animlib[32], animname[32], &anim_lock, &respawn_time)
 {
-	#if defined WC_OnPlayerPrepareDeath
-		WC_OnPlayerPrepareDeath(playerid, animlib, animname, anim_lock, respawn_time);
-	#endif
+	return WC_OnPlayerPrepareDeath(playerid, animlib, animname, anim_lock, respawn_time);
 }
 
 public OnRejectedHit(playerid, hit[E_REJECTED_HIT])
@@ -5002,9 +4931,7 @@ public OnRejectedHit(playerid, hit[E_REJECTED_HIT])
 		DebugMessageRed(playerid, "Rejected hit: %s", output);
 	#endif
 
-	#if defined WC_OnRejectedHit
-		WC_OnRejectedHit(playerid, hit);
-	#endif
+	WC_OnRejectedHit(playerid, hit);
 }
 
 public OnPlayerDeathFinished(playerid, bool:cancelable)
@@ -5018,13 +4945,11 @@ public OnPlayerDeathFinished(playerid, bool:cancelable)
 		s_DeathTimer[playerid] = -1;
 	}
 
-	#if defined WC_OnPlayerDeathFinished
-		new retval = WC_OnPlayerDeathFinished(playerid, cancelable);
+	new retval = WC_OnPlayerDeathFinished(playerid, cancelable);
 
-		if (!retval && cancelable) {
-			return 0;
-		}
-	#endif
+	if (!retval && cancelable) {
+		return 0;
+	}
 
 	ResetPlayerWeapons(playerid);
 
@@ -5033,17 +4958,7 @@ public OnPlayerDeathFinished(playerid, bool:cancelable)
 
 #if WC_CUSTOM_VENDING_MACHINES
 	public OnPlayerUseVendingMachine(playerid, &Float:health_given) {
-		#if defined WC_OnPlayerUseVendingMachine
-			return WC_OnPlayerUseVendingMachine(playerid, health_given);
-		#else
-			if (GetPlayerMoney(playerid) > 0) {
-				GivePlayerMoney(playerid, -1);
-
-				return 1;
-			} else {
-				return 0;
-			}
-		#endif
+		return WC_OnPlayerUseVendingMachine(playerid, health_given);
 	}
 
 	forward WC_VendingMachineUsed(playerid, Float:health_given);
@@ -5269,7 +5184,7 @@ static DamageFeedUpdateText(playerid)
 			format(
 				buf,
 				sizeof(buf),
-				"%s%s -%.2f (%.2f)~n~",				
+				"%s%s -%.2f (%.2f)~n~",
 				buf,
 				weapon,
 				s_DamageFeedHitsTaken[playerid][i][e_Amount] + 0.009,
@@ -5305,13 +5220,9 @@ static DamageFeedAddHitGiven(playerid, issuerid, Float:amount, weapon)
 {
 	#if defined _inc_y_iterate
 	foreach (new i : Player) {
-	#else
-	for (new i = GetPlayerPoolSize(); i >= 0; --i) {
-		if (!IsPlayerConnected(i)) {
-			continue;
-		}
+	#else 
+	for (new i = GetPlayerPoolSize(); i != -1; i--) {
 	#endif
-
 		if (s_Spectating[i] == playerid && i != playerid) {
 			DamageFeedAddHit(s_DamageFeedHitsGiven[i], i, issuerid, amount, weapon);
 		}
@@ -5324,13 +5235,9 @@ static DamageFeedAddHitTaken(playerid, issuerid, Float:amount, weapon)
 {
 	#if defined _inc_y_iterate
 	foreach (new i : Player) {
-	#else
-	for (new i = GetPlayerPoolSize(); i >= 0; --i) {
-		if (!IsPlayerConnected(i)) {
-			continue;
-		}
+	#else 
+	for (new i = GetPlayerPoolSize(); i != -1; i--) {
 	#endif
-
 		if (s_Spectating[i] == playerid && i != playerid) {
 			DamageFeedAddHit(s_DamageFeedHitsTaken[i], i, issuerid, amount, weapon);
 		}
@@ -5468,7 +5375,7 @@ static IsPlayerBehindPlayer(playerid, targetid, Float:diff = 90.0)
 
 static AddRejectedHit(playerid, damagedid, reason, weapon, i1 = 0, i2 = 0, i3 = 0)
 {
-	if (playerid != INVALID_PLAYER_ID) {
+	if (0 <= playerid < MAX_PLAYERS) {
 		new idx = s_RejectedHitsIdx[playerid];
 
 		if (s_RejectedHits[playerid][idx][e_Time]) {
@@ -5495,7 +5402,7 @@ static AddRejectedHit(playerid, damagedid, reason, weapon, i1 = 0, i2 = 0, i3 = 
 		s_RejectedHits[playerid][idx][e_Info2] = _:i2;
 		s_RejectedHits[playerid][idx][e_Info3] = _:i3;
 
-		if (damagedid != INVALID_PLAYER_ID) {
+		if (0 <= damagedid < MAX_PLAYERS) {
 			GetPlayerName(damagedid, s_RejectedHits[playerid][idx][e_Name], MAX_PLAYER_NAME);
 		} else {
 			s_RejectedHits[playerid][idx][e_Name][0] = '#';
@@ -5509,7 +5416,8 @@ static AddRejectedHit(playerid, damagedid, reason, weapon, i1 = 0, i2 = 0, i3 = 
 forward WC_SecondKnifeAnim(playerid);
 public WC_SecondKnifeAnim(playerid)
 {
-	ApplyAnimation(playerid, "KNIFE", "KILL_Knife_Ped_Die", 4.1, 0, 1, 1, 1, 3000, 1);
+	new animlib[32] = "KNIFE", animname[32] = "KILL_Knife_Ped_Die";
+	ApplyAnimation(playerid, animlib, animname, 4.1, 0, 1, 1, 1, 3000, 1);
 }
 
 forward WC_PlayerDeathRespawn(playerid);
@@ -5524,7 +5432,7 @@ public WC_PlayerDeathRespawn(playerid)
 	if (!OnPlayerDeathFinished(playerid, true)) {
 		UpdateHealthBar(playerid);
 		SetFakeFacingAngle(playerid, _);
-		FreezeSyncData(playerid, false);
+		FreezeSyncPacket(playerid, .toggle = false);
 
 		return;
 	}
@@ -5548,9 +5456,7 @@ public OnInvalidWeaponDamage(playerid, damagedid, Float:amount, weaponid, bodypa
 {
 	DebugMessageRedAll("OnInvalidWeaponDamage(%d, %d, %f, %d, %d, %d, %d)", playerid, damagedid, amount, weaponid, bodypart, error, given);
 
-	#if defined WC_OnInvalidWeaponDamage
-		WC_OnInvalidWeaponDamage(playerid, damagedid, Float:amount, weaponid, bodypart, error, bool:given);
-	#endif
+	WC_OnInvalidWeaponDamage(playerid, damagedid, Float:amount, weaponid, bodypart, error, bool:given);
 }
 
 public OnPlayerDamageDone(playerid, Float:amount, issuerid, weapon, bodypart)
@@ -5580,13 +5486,9 @@ public OnPlayerDamageDone(playerid, Float:amount, issuerid, weapon, bodypart)
 
 			#if defined _inc_y_iterate
 			foreach (new i : Player) {
-			#else
-			for (new i = GetPlayerPoolSize(); i >= 0; --i) {
-				if (!IsPlayerConnected(i)) {
-					continue;
-				}
+			#else 
+			for (new i = GetPlayerPoolSize(); i != -1; i--) {
 			#endif
-
 				if (s_Spectating[i] == playerid && i != playerid) {
 					PlayerPlaySound(i, s_DamageTakenSound, 0.0, 0.0, 0.0);
 				}
@@ -5598,13 +5500,9 @@ public OnPlayerDamageDone(playerid, Float:amount, issuerid, weapon, bodypart)
 
 			#if defined _inc_y_iterate
 			foreach (new i : Player) {
-			#else
-			for (new i = GetPlayerPoolSize(); i >= 0; --i) {
-				if (!IsPlayerConnected(i)) {
-					continue;
-				}
+			#else 
+			for (new i = GetPlayerPoolSize(); i != -1; i--) {
 			#endif
-
 				if (s_Spectating[i] == issuerid && i != issuerid) {
 					PlayerPlaySound(i, s_DamageGivenSound, 0.0, 0.0, 0.0);
 				}
@@ -5618,32 +5516,33 @@ public OnPlayerDamageDone(playerid, Float:amount, issuerid, weapon, bodypart)
 
 	DamageFeedAddHitTaken(playerid, issuerid, amount, weapon);
 
-	#if defined WC_OnPlayerDamageDone
-		WC_OnPlayerDamageDone(playerid, amount, issuerid, weapon, bodypart);
-	#endif
+	WC_OnPlayerDamageDone(playerid, amount, issuerid, weapon, bodypart);
 }
 
 public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 {
-	#if defined WC_OnPlayerDamage
-		return WC_OnPlayerDamage(playerid, amount, issuerid, weapon, bodypart);
-	#else
-		return 1;
-	#endif
+	return WC_OnPlayerDamage(playerid, amount, issuerid, weapon, bodypart);
 }
 
 /*
  * ALS callbacks
  */
+#if defined _ALS_OnScriptInit
+	#undef OnScriptInit
+#else
+	#define _ALS_OnScriptInit
+#endif
+#define OnScriptInit(%0) CHAIN_PUBLIC:WC_OnScriptInit(%0)
+CHAIN_FORWARD:WC_OnScriptInit() = 1;
+
+
 #if defined _ALS_OnGameModeInit
 	#undef OnGameModeInit
 #else
 	#define _ALS_OnGameModeInit
 #endif
-#define OnGameModeInit WC_OnGameModeInit
-#if defined WC_OnGameModeInit
-	forward WC_OnGameModeInit();
-#endif
+#define OnGameModeInit(%0) CHAIN_PUBLIC:WC_OnGameModeInit(%0)
+CHAIN_FORWARD:WC_OnGameModeInit() = 1;
 
 
 #if defined _ALS_OnGameModeExit
@@ -5651,10 +5550,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnGameModeExit
 #endif
-#define OnGameModeExit WC_OnGameModeExit
-#if defined WC_OnGameModeExit
-	forward WC_OnGameModeExit();
-#endif
+#define OnGameModeExit(%0) CHAIN_PUBLIC:WC_OnGameModeExit(%0)
+CHAIN_FORWARD:WC_OnGameModeExit() = 1;
 
 
 #if defined _ALS_OnFilterScriptInit
@@ -5662,10 +5559,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnFilterScriptInit
 #endif
-#define OnFilterScriptInit WC_OnFilterScriptInit
-#if defined WC_OnFilterScriptInit
-	forward WC_OnFilterScriptInit();
-#endif
+#define OnFilterScriptInit(%0) CHAIN_PUBLIC:WC_OnFilterScriptInit(%0)
+CHAIN_FORWARD:WC_OnFilterScriptInit() = 1;
 
 
 #if defined _ALS_OnFilterScriptExit
@@ -5673,10 +5568,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnFilterScriptExit
 #endif
-#define OnFilterScriptExit WC_OnFilterScriptExit
-#if defined WC_OnFilterScriptExit
-	forward WC_OnFilterScriptExit();
-#endif
+#define OnFilterScriptExit(%0) CHAIN_PUBLIC:WC_OnFilterScriptExit(%0)
+CHAIN_FORWARD:WC_OnFilterScriptExit() = 1;
 
 
 #if defined _ALS_OnPlayerConnect
@@ -5684,10 +5577,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnPlayerConnect
 #endif
-#define OnPlayerConnect WC_OnPlayerConnect
-#if defined WC_OnPlayerConnect
-	forward WC_OnPlayerConnect(playerid);
-#endif
+#define OnPlayerConnect(%0) CHAIN_PUBLIC:WC_OnPlayerConnect(%0)
+CHAIN_FORWARD:WC_OnPlayerConnect(playerid) = 1;
 
 
 #if defined _ALS_OnPlayerDisconnect
@@ -5695,10 +5586,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnPlayerDisconnect
 #endif
-#define OnPlayerDisconnect WC_OnPlayerDisconnect
-#if defined WC_OnPlayerDisconnect
-	forward WC_OnPlayerDisconnect(playerid, reason);
-#endif
+#define OnPlayerDisconnect(%0) CHAIN_PUBLIC:WC_OnPlayerDisconnect(%0)
+CHAIN_FORWARD:WC_OnPlayerDisconnect(playerid, reason) = 1;
 
 
 #if defined _ALS_OnPlayerStreamIn
@@ -5706,20 +5595,17 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnPlayerStreamIn
 #endif
-#define OnPlayerStreamIn WC_OnPlayerStreamIn
-#if defined WC_OnPlayerStreamIn
-	forward WC_OnPlayerStreamIn(playerid, forplayerid);
-#endif
+#define OnPlayerStreamIn(%0) CHAIN_PUBLIC:WC_OnPlayerStreamIn(%0)
+CHAIN_FORWARD:WC_OnPlayerStreamIn(playerid, forplayerid) = 1;
+
 
 #if defined _ALS_OnVehicleDeath
 	#undef OnVehicleDeath
 #else
 	#define _ALS_OnVehicleDeath
 #endif
-#define OnVehicleDeath WC_OnVehicleDeath
-#if defined WC_OnVehicleDeath
-	forward WC_OnVehicleDeath(vehicleid, killerid);
-#endif
+#define OnVehicleDeath(%0) CHAIN_PUBLIC:WC_OnVehicleDeath(%0)
+CHAIN_FORWARD:WC_OnVehicleDeath(vehicleid, killerid) = 1;
 
 
 #if defined _ALS_OnVehicleSpawn
@@ -5727,20 +5613,17 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnVehicleSpawn
 #endif
-#define OnVehicleSpawn WC_OnVehicleSpawn
-#if defined WC_OnVehicleSpawn
-	forward WC_OnVehicleSpawn(vehicleid);
-#endif
+#define OnVehicleSpawn(%0) CHAIN_PUBLIC:WC_OnVehicleSpawn(%0)
+CHAIN_FORWARD:WC_OnVehicleSpawn(vehicleid) = 1;
+
 
 #if defined _ALS_OnPlayerEnterVehicle
 	#undef OnPlayerEnterVehicle
 #else
 	#define _ALS_OnPlayerEnterVehicle
 #endif
-#define OnPlayerEnterVehicle WC_OnPlayerEnterVehicle
-#if defined WC_OnPlayerEnterVehicle
-	forward WC_OnPlayerEnterVehicle(playerid, vehicleid, ispassenger);
-#endif
+#define OnPlayerEnterVehicle(%0) CHAIN_PUBLIC:WC_OnPlayerEnterVehicle(%0)
+CHAIN_FORWARD:WC_OnPlayerEnterVehicle(playerid, vehicleid, ispassenger) = 1;
 
 
 #if defined _ALS_OnPlayerExitVehicle
@@ -5748,10 +5631,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnPlayerExitVehicle
 #endif
-#define OnPlayerExitVehicle WC_OnPlayerExitVehicle
-#if defined WC_OnPlayerExitVehicle
-	forward WC_OnPlayerExitVehicle(playerid, vehicleid);
-#endif
+#define OnPlayerExitVehicle(%0) CHAIN_PUBLIC:WC_OnPlayerExitVehicle(%0)
+CHAIN_FORWARD:WC_OnPlayerExitVehicle(playerid, vehicleid) = 1;
 
 
 #if defined _ALS_OnPlayerStateChange
@@ -5759,10 +5640,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnPlayerStateChange
 #endif
-#define OnPlayerStateChange WC_OnPlayerStateChange
-#if defined WC_OnPlayerStateChange
-	forward WC_OnPlayerStateChange(playerid, newstate, oldstate);
-#endif
+#define OnPlayerStateChange(%0) CHAIN_PUBLIC:WC_OnPlayerStateChange(%0)
+CHAIN_FORWARD:WC_OnPlayerStateChange(playerid, newstate, oldstate) = 1;
 
 
 #if defined _ALS_OnPlayerPickUpPickup
@@ -5770,10 +5649,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnPlayerPickUpPickup
 #endif
-#define OnPlayerPickUpPickup WC_OnPlayerPickUpPickup
-#if defined WC_OnPlayerPickUpPickup
-	forward WC_OnPlayerPickUpPickup(playerid, pickupid);
-#endif
+#define OnPlayerPickUpPickup(%0) CHAIN_PUBLIC:WC_OnPlayerPickUpPickup(%0)
+CHAIN_FORWARD:WC_OnPlayerPickUpPickup(playerid, pickupid) = 1;
 
 
 #if defined _ALS_OnPlayerUpdate
@@ -5781,10 +5658,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnPlayerUpdate
 #endif
-#define OnPlayerUpdate WC_OnPlayerUpdate
-#if defined WC_OnPlayerUpdate
-	forward WC_OnPlayerUpdate(playerid);
-#endif
+#define OnPlayerUpdate(%0) CHAIN_PUBLIC:WC_OnPlayerUpdate(%0)
+CHAIN_FORWARD:WC_OnPlayerUpdate(playerid) = 1;
 
 
 #if defined _ALS_OnPlayerSpawn
@@ -5792,10 +5667,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnPlayerSpawn
 #endif
-#define OnPlayerSpawn WC_OnPlayerSpawn
-#if defined WC_OnPlayerSpawn
-	forward WC_OnPlayerSpawn(playerid);
-#endif
+#define OnPlayerSpawn(%0) CHAIN_PUBLIC:WC_OnPlayerSpawn(%0)
+CHAIN_FORWARD:WC_OnPlayerSpawn(playerid) = 1;
 
 
 #if defined _ALS_OnPlayerRequestClass
@@ -5803,10 +5676,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnPlayerRequestClass
 #endif
-#define OnPlayerRequestClass WC_OnPlayerRequestClass
-#if defined WC_OnPlayerRequestClass
-	forward WC_OnPlayerRequestClass(playerid, classid);
-#endif
+#define OnPlayerRequestClass(%0) CHAIN_PUBLIC:WC_OnPlayerRequestClass(%0)
+CHAIN_FORWARD:WC_OnPlayerRequestClass(playerid, classid) = 1;
 
 
 #if defined _ALS_OnPlayerDeath
@@ -5814,10 +5685,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnPlayerDeath
 #endif
-#define OnPlayerDeath WC_OnPlayerDeath
-#if defined WC_OnPlayerDeath
-	forward WC_OnPlayerDeath(playerid, killerid, reason);
-#endif
+#define OnPlayerDeath(%0) CHAIN_PUBLIC:WC_OnPlayerDeath(%0)
+CHAIN_FORWARD:WC_OnPlayerDeath(playerid, killerid, reason) = 1;
 
 
 #if defined _ALS_OnPlayerKeyStateChange
@@ -5825,10 +5694,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnPlayerKeyStateChange
 #endif
-#define OnPlayerKeyStateChange WC_OnPlayerKeyStateChange
-#if defined WC_OnPlayerKeyStateChange
-	forward WC_OnPlayerKeyStateChange(playerid, newkeys, oldkeys);
-#endif
+#define OnPlayerKeyStateChange(%0) CHAIN_PUBLIC:WC_OnPlayerKeyStateChange(%0)
+CHAIN_FORWARD:WC_OnPlayerKeyStateChange(playerid, newkeys, oldkeys) = 1;
 
 
 #if defined _ALS_OnPlayerWeaponShot
@@ -5836,10 +5703,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnPlayerWeaponShot
 #endif
-#define OnPlayerWeaponShot WC_OnPlayerWeaponShot
-#if defined WC_OnPlayerWeaponShot
-	forward WC_OnPlayerWeaponShot(playerid, weaponid, hittype, hitid, Float:fX, Float:fY, Float:fZ);
-#endif
+#define OnPlayerWeaponShot(%0) CHAIN_PUBLIC:WC_OnPlayerWeaponShot(%0)
+CHAIN_FORWARD:WC_OnPlayerWeaponShot(playerid, weaponid, hittype, hitid, Float:fX, Float:fY, Float:fZ) = 1;
 
 
 #if defined _ALS_OnPlayerEnterCheckpoint
@@ -5847,10 +5712,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnPlayerEnterCheckpoint
 #endif
-#define OnPlayerEnterCheckpoint WC_OnPlayerEnterCheckpoint
-#if defined WC_OnPlayerEnterCheckpoint
-	forward WC_OnPlayerEnterCheckpoint(playerid);
-#endif
+#define OnPlayerEnterCheckpoint(%0) CHAIN_PUBLIC:WC_OnPlayerEnterCheckpoint(%0)
+CHAIN_FORWARD:WC_OnPlayerEnterCheckpoint(playerid) = 1;
 
 
 #if defined _ALS_OnPlayerLeaveCheckpoint
@@ -5858,10 +5721,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnPlayerLeaveCheckpoint
 #endif
-#define OnPlayerLeaveCheckpoint WC_OnPlayerLeaveCheckpoint
-#if defined WC_OnPlayerLeaveCheckpoint
-	forward WC_OnPlayerLeaveCheckpoint(playerid);
-#endif
+#define OnPlayerLeaveCheckpoint(%0) CHAIN_PUBLIC:WC_OnPlayerLeaveCheckpoint(%0)
+CHAIN_FORWARD:WC_OnPlayerLeaveCheckpoint(playerid) = 1;
 
 
 #if defined _ALS_OnInvalidWeaponDamage
@@ -5869,10 +5730,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnInvalidWeaponDamage
 #endif
-#define OnInvalidWeaponDamage WC_OnInvalidWeaponDamage
-#if defined WC_OnInvalidWeaponDamage
-	forward WC_OnInvalidWeaponDamage(playerid, damagedid, Float:amount, weaponid, bodypart, error, bool:given);
-#endif
+#define OnInvalidWeaponDamage(%0) CHAIN_PUBLIC:WC_OnInvalidWeaponDamage(%0)
+CHAIN_FORWARD:WC_OnInvalidWeaponDamage(playerid, damagedid, Float:amount, weaponid, bodypart, error, bool:given) = 1;
 
 
 #if defined _ALS_OnPlayerDamageDone
@@ -5880,10 +5739,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnPlayerDamageDone
 #endif
-#define OnPlayerDamageDone WC_OnPlayerDamageDone
-#if defined WC_OnPlayerDamageDone
-	forward WC_OnPlayerDamageDone(playerid, Float:amount, issuerid, weapon, bodypart);
-#endif
+#define OnPlayerDamageDone(%0) CHAIN_PUBLIC:WC_OnPlayerDamageDone(%0)
+CHAIN_FORWARD:WC_OnPlayerDamageDone(playerid, Float:amount, issuerid, weapon, bodypart) = 1;
 
 
 #if defined _ALS_OnPlayerDamage
@@ -5891,10 +5748,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnPlayerDamage
 #endif
-#define OnPlayerDamage WC_OnPlayerDamage
-#if defined WC_OnPlayerDamage
-	forward WC_OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart);
-#endif
+#define OnPlayerDamage(%0) CHAIN_PUBLIC:WC_OnPlayerDamage(%0)
+CHAIN_FORWARD:WC_OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart) = 1;
 
 
 #if defined _ALS_OnPlayerPrepareDeath
@@ -5902,10 +5757,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnPlayerPrepareDeath
 #endif
-#define OnPlayerPrepareDeath WC_OnPlayerPrepareDeath
-#if defined WC_OnPlayerPrepareDeath
-	forward WC_OnPlayerPrepareDeath(playerid, const animlib[32], const animname[32], &anim_lock, &respawn_time);
-#endif
+#define OnPlayerPrepareDeath(%0) CHAIN_PUBLIC:WC_OnPlayerPrepareDeath(%0)
+CHAIN_FORWARD:WC_OnPlayerPrepareDeath(playerid, animlib[32], animname[32], &anim_lock, &respawn_time) = 1;
 
 
 #if defined _ALS_OnRejectedHit
@@ -5913,10 +5766,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnRejectedHit
 #endif
-#define OnRejectedHit WC_OnRejectedHit
-#if defined WC_OnRejectedHit
-	forward WC_OnRejectedHit(playerid, hit[E_REJECTED_HIT]);
-#endif
+#define OnRejectedHit(%0) CHAIN_PUBLIC:WC_OnRejectedHit(%0)
+CHAIN_FORWARD:WC_OnRejectedHit(playerid, hit[E_REJECTED_HIT]) = 1;
 
 
 #if WC_CUSTOM_VENDING_MACHINES
@@ -5925,10 +5776,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 	#else
 		#define _ALS_OnPlayerUseVendingMachine
 	#endif
-	#define OnPlayerUseVendingMachine WC_OnPlayerUseVendingMachine
-	#if defined WC_OnPlayerUseVendingMachine
-		forward WC_OnPlayerUseVendingMachine(playerid, &Float:health_given);
-	#endif
+	#define OnPlayerUseVendingMachine(%0) CHAIN_PUBLIC:WC_OnPlayerUseVendingMachine(%0)
+	CHAIN_FORWARD:WC_OnPlayerUseVendingMachine(playerid, &Float:health_given) = 1;
 #endif
 
 
@@ -5937,10 +5786,8 @@ public OnPlayerDamage(&playerid, &Float:amount, &issuerid, &weapon, &bodypart)
 #else
 	#define _ALS_OnPlayerDeathFinished
 #endif
-#define OnPlayerDeathFinished WC_OnPlayerDeathFinished
-#if defined WC_OnPlayerDeathFinished
-	forward WC_OnPlayerDeathFinished(playerid, bool:cancelable);
-#endif
+#define OnPlayerDeathFinished(%0) CHAIN_PUBLIC:WC_OnPlayerDeathFinished(%0)
+CHAIN_FORWARD:WC_OnPlayerDeathFinished(playerid, bool:cancelable) = 1;
 
 /*
  * ALS functions
