@@ -2,13 +2,7 @@
 	#endinput
 #endif
 #define _INC_FIX_SCOPE
-
-#if !defined CHAIN_FORWARD
-	#define CHAIN_FORWARD:%0_%2(%1)=%3; \
-		forward %0_%2(%1); \
-		public %0_%2(%1) <_ALS : _ALS_x0, _ALS : _ALS_x1> { return (%3); } \
-		public %0_%2(%1) <> { return (%3); }
-#endif	
+#include <a_samp>
 
 #if !defined PRESSING
 	#define PRESSING(%0,%1) (%0 & (%1))
@@ -36,6 +30,39 @@ enum E_FIX_SCOPE {
 	fs_materialcolor2
 };
 static FS_AttachData[MAX_PLAYERS][MAX_PLAYER_ATTACHED_OBJECTS][E_FIX_SCOPE];
+static bool: Checked[MAX_PLAYERS];
+stock FS_H_RemovePlayerAttachedObject(playerid, index) {
+	if (playerid < 0 || playerid >= MAX_PLAYERS) {
+		return false;
+	}
+	if (index < 0 || index >= MAX_PLAYER_ATTACHED_OBJECTS) {
+		return false;
+	}
+	if(!Checked[playerid]) {
+		FS_AttachData[playerid][index][fs_offsetX] = 
+		FS_AttachData[playerid][index][fs_offsetY] = 
+		FS_AttachData[playerid][index][fs_offsetZ] = 
+		FS_AttachData[playerid][index][fs_rotX] = 
+		FS_AttachData[playerid][index][fs_rotY] = 
+		FS_AttachData[playerid][index][fs_rotZ] = 
+		FS_AttachData[playerid][index][fs_scaleX] = 
+		FS_AttachData[playerid][index][fs_scaleY] = 
+		FS_AttachData[playerid][index][fs_scaleZ] = 
+		FS_AttachData[playerid][index][fs_materialcolor1] = 
+		FS_AttachData[playerid][index][fs_materialcolor2] = 
+		FS_AttachData[playerid][index][fs_index] = 
+		FS_AttachData[playerid][index][fs_modelid] = 
+		FS_AttachData[playerid][index][fs_bone]  = -1;
+	}
+	Checked[playerid] = false;
+	return RemovePlayerAttachedObject(playerid, index);
+}
+#if defined _ALS_RemovePlayerAttachedObject
+	#undef RemovePlayerAttachedObject
+#else
+	#define _ALS_RemovePlayerAttachedObject
+#endif
+#define RemovePlayerAttachedObject FS_H_RemovePlayerAttachedObject
 
 stock FS_RemovePlayerAttachedObject(playerid, index) //No hook 
 {
@@ -48,10 +75,11 @@ stock FS_RemovePlayerAttachedObject(playerid, index) //No hook
 	if(FS_AttachData[playerid][index][fs_index] == index)
 	{
 		if(FS_AttachData[playerid][index][fs_bone] == 2) // if bone is head
-		{
+		{		
+			Checked[playerid] = true;	
 			return RemovePlayerAttachedObject(playerid, index);
 		}
-	}
+	}	
 	return false;	
 }
 stock FS_SetPlayerAttachedObject(playerid, index, modelid, bone, Float:fOffsetX = 0.0, Float:fOffsetY = 0.0, Float:fOffsetZ = 0.0, Float:fRotX = 0.0, Float:fRotY = 0.0, Float:fRotZ = 0.0, Float:fScaleX = 1.0, Float:fScaleY = 1.0, Float:fScaleZ = 1.0, materialcolor1 = 0, materialcolor2 = 0)
@@ -61,7 +89,7 @@ stock FS_SetPlayerAttachedObject(playerid, index, modelid, bone, Float:fOffsetX 
 	}
 	if (index < 0 || index >= MAX_PLAYER_ATTACHED_OBJECTS) {
 		return false;
-	}
+	}	
 	if(bone == 2) // if bone is head
 	{		
 		FS_AttachData[playerid][index][fs_index] = index;
@@ -91,19 +119,19 @@ stock FS_SetPlayerAttachedObject(playerid, index, modelid, bone, Float:fOffsetX 
 public OnPlayerKeyStateChange(playerid, newkeys, oldkeys)
 {
 	if (PRESSING(newkeys, KEY_HANDBRAKE)) { //RMB (Right Mouse Button)
-		if (GetPlayerWeapon(playerid) == 34) { //Weapon Sniper Rifle
-	    	for (new index; index < MAX_PLAYER_ATTACHED_OBJECTS; index++) { //Loop all slots
-	        	if (IsPlayerAttachedObjectSlotUsed(playerid, index)) {
-	        	   FS_RemovePlayerAttachedObject(playerid, index);
-	        	}
-	        }	
+		if (WEAPON_SNIPER <= GetPlayerWeapon(playerid) <= WEAPON_HEATSEEKER) { //Weapons
+			for (new index; index < MAX_PLAYER_ATTACHED_OBJECTS; index++) { //Loop all slots
+				if (IsPlayerAttachedObjectSlotUsed(playerid, index)) {
+					FS_RemovePlayerAttachedObject(playerid, index);
+				}
+			}	
 		}
 	}
 	else if (RELEASED(KEY_HANDBRAKE)) { //RMB (Right Mouse Button)
-	    if (GetPlayerWeapon(playerid) == 34) { //Weapon Sniper Rifle
-	    	for (new index; index < MAX_PLAYER_ATTACHED_OBJECTS; index++) { //Loop all slots	    		
-	    		SetPlayerAttachedObject(playerid, 
-	    		FS_AttachData[playerid][index][fs_index],
+		if (WEAPON_SNIPER <= GetPlayerWeapon(playerid) <= WEAPON_HEATSEEKER) { //Weapon
+			for (new index; index < MAX_PLAYER_ATTACHED_OBJECTS; index++) { //Loop all slots
+				SetPlayerAttachedObject(playerid, 
+				FS_AttachData[playerid][index][fs_index],
 				FS_AttachData[playerid][index][fs_modelid],
 				FS_AttachData[playerid][index][fs_bone],
 				FS_AttachData[playerid][index][fs_offsetX],
@@ -117,15 +145,56 @@ public OnPlayerKeyStateChange(playerid, newkeys, oldkeys)
 				FS_AttachData[playerid][index][fs_scaleZ],
 				FS_AttachData[playerid][index][fs_materialcolor1],
 				FS_AttachData[playerid][index][fs_materialcolor2]);
-	        }
-	    }
+			}
+		}
 	}
+#if defined FS_OnPlayerKeyStateChange
 	return FS_OnPlayerKeyStateChange(playerid, newkeys, oldkeys);
+#else
+	return true;
+#endif
 }
+public OnPlayerConnect(playerid)
+{
+	Checked[playerid] = false;
+	for (new index; index < MAX_PLAYER_ATTACHED_OBJECTS; index++) //Loop all slots
+		FS_AttachData[playerid][index][fs_offsetX] = 
+		FS_AttachData[playerid][index][fs_offsetY] = 
+		FS_AttachData[playerid][index][fs_offsetZ] = 
+		FS_AttachData[playerid][index][fs_rotX] = 
+		FS_AttachData[playerid][index][fs_rotY] = 
+		FS_AttachData[playerid][index][fs_rotZ] = 
+		FS_AttachData[playerid][index][fs_scaleX] = 
+		FS_AttachData[playerid][index][fs_scaleY] = 
+		FS_AttachData[playerid][index][fs_scaleZ] = 
+		FS_AttachData[playerid][index][fs_materialcolor1] = 
+		FS_AttachData[playerid][index][fs_materialcolor2] = 
+		FS_AttachData[playerid][index][fs_index] = 
+		FS_AttachData[playerid][index][fs_modelid] = 
+		FS_AttachData[playerid][index][fs_bone]  = -1;
+#if defined FS_OnPlayerConnect
+	return FS_OnPlayerConnect(playerid);
+#else
+	return true;
+#endif
+}
+//ALS HOOKS
+#if defined _ALS_OnPlayerConnect
+	#undef OnPlayerConnect
+#else
+	#define _ALS_OnPlayerConnect
+#endif
+#define OnPlayerConnect FS_OnPlayerConnect
+#if defined FS_OnPlayerConnect
+	forward FS_OnPlayerConnect(playerid);
+#endif
+
 #if defined _ALS_OnPlayerKeyStateChange
 	#undef OnPlayerKeyStateChange
 #else
 	#define _ALS_OnPlayerKeyStateChange
 #endif
-#define OnPlayerKeyStateChange(%0) CHAIN_PUBLIC:FS_OnPlayerKeyStateChange(%0)
-CHAIN_FORWARD:FS_OnPlayerKeyStateChange(playerid, newkeys, oldkeys) = 1;
+#define OnPlayerKeyStateChange FS_OnPlayerKeyStateChange
+#if defined FS_OnPlayerKeyStateChange
+	forward FS_OnPlayerKeyStateChange(playerid, newkeys, oldkeys);
+#endif
