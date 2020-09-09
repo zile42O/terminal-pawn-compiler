@@ -7,7 +7,8 @@ import (
 	"bufio"
 	"os"
 	"bytes"
-	"regexp"
+	"regexp"	
+	"path/filepath"
 )
 
 func main() {
@@ -108,10 +109,58 @@ func main() {
 
 	fmt.Println("\n\x1b[32m× Compilling took:\x1b[0m \x1b[33m", elapsed, "\x1b[0m")
 
+	//Get numbers of lines and number of listing files
+	exts := []string{".pwn", ".p"}
+	//Listing
+	FoundedFiles := 0;
+	var found_files []string
+	err := filepath.Walk("E:/SAMP dev/samp-smokers/gamemodes", func(path string, info os.FileInfo, err error) error {
+		//Checking files
+		if stringInSlice(filepath.Ext(path), exts) {
+			found_files = append(found_files, path)
+			FoundedFiles++
+		} 
+		return nil
+	})
+	if err != nil {
+		panic(err)
+	}
+	TotalLines := 0;
+	for _, file := range found_files {		
+		lines := LinesInFile(file)
+		TotalLines += len(lines)
+	}
+	fmt.Println("\n----------------------------------------------------\n")
+	printStatus(TotalLines, "Total Line(s)")
+	printStatus(FoundedFiles, "Total File(s)")
 	fmt.Println("\n \n Press enter key to compile again")
 	bufio.NewReader(os.Stdin).ReadBytes('\n')
 	goto compile
 }
+
+func stringInSlice(v string, ss []string) bool {
+    for _, s := range ss {
+        if s == v {
+            return true
+        }
+    }
+    return false
+}
+
+func LinesInFile(fileName string) []string {
+    f, _ := os.Open(fileName)
+    // Create new Scanner.
+    scanner := bufio.NewScanner(f)
+    result := []string{}
+    // Use Scan.
+    for scanner.Scan() {
+        line := scanner.Text()
+        // Append line to result.
+        result = append(result, line)
+    }
+    return result
+}
+
 func returnErrorType(str string) (formstr string) {
 	switch str {
 		case "warning":
