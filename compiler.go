@@ -9,17 +9,33 @@ import (
 	"bytes"
 	"regexp"	
 	"path/filepath"
+	"encoding/json"
 )
 
+type Config struct {
+	CompilerPath string `json:"CompilerPath"`
+	GamemodePathFull string `json:"GamemodePathFull"`
+	GamemodePath string `json:"GamemodePath"`
+}
+func LoadConfiguration(file string) Config {
+    var config Config
+    configFile, err := os.Open(file)
+    defer configFile.Close()
+    if err != nil {
+        fmt.Println(err.Error())
+    }
+    jsonParser := json.NewDecoder(configFile)
+    jsonParser.Decode(&config)
+    return config
+}
 func main() {
 
-	compile:
+	config := LoadConfiguration("configure-compile.json")
 
+	compile:
 	fmt.Println("\n\x1b[32m× Compiling...", "\x1b[0m")
 	start := time.Now()	
-
-	PATH_COMPILER := "E:/SAMP dev/compiler/bin/pawncc.exe"
-
+	
 	//cmd := exec.Command(PATH_COMPILER, "../gamemodes/main.pwn", "-Dgamemodes", "-;+", "-(+", "-d3", "-Z+")
 	/*
 		"cmd": [
@@ -32,7 +48,7 @@ func main() {
 		],
 	*/
 	//pawncc "E:/SAMP dev/samp-smokers/gamemodes/main.pwn" "-DE:/SAMP dev/samp-smokers/gamemodes" "-;+" "-(+" "-d3"
-	cmd := exec.Command(PATH_COMPILER, "E:/SAMP dev/samp-smokers/gamemodes/main.pwn", "-DE:/SAMP dev/samp-smokers/gamemodes", "-;+", "-(+", "-d3")
+	cmd := exec.Command(config.CompilerPath, config.GamemodePathFull, "-D" + config.GamemodePath, "-;+", "-(+", "-d3")
 	var out bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &out
@@ -85,18 +101,12 @@ func main() {
 /*
 \\(\w+\.(pwn|inc|p))\(([^)]+\))\s\:\s(error|warning|fatal error)\s\w+\:([^\n]+)
 */
-
-
-
-	
 	//----------------------------------------------------------------------	
 
 	t := time.Now()
 	elapsed := t.Sub(start)
 
 	fmt.Println("\n----------------------------------------------------")
-
-	
 
 	printStatus(TotalFatalErrors, 	"Fatal error(s)")
 	printStatus(TotalErrors, 		"Error(s)")
@@ -114,7 +124,7 @@ func main() {
 	//Listing
 	FoundedFiles := 0;
 	var found_files []string
-	err := filepath.Walk("E:/SAMP dev/samp-smokers/gamemodes", func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(config.GamemodePath, func(path string, info os.FileInfo, err error) error {
 		//Checking files
 		if stringInSlice(filepath.Ext(path), exts) {
 			found_files = append(found_files, path)
